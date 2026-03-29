@@ -49,7 +49,7 @@ export function AssistantPromptEditor() {
         .from('settings')
         .select('id, system_prompt, product_prompts')
         .limit(1)
-        .single()
+        .single() as any
       if (data) {
         setSettingsId(data.id)
         setSystemPrompt(data.system_prompt || '')
