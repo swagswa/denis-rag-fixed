@@ -63,7 +63,7 @@ function GmailSection() {
   const handleDisconnect = async () => {
     setLoading(true)
     try {
-      await supabase.from('credentials').delete().eq('id', 'gmail')
+      await (supabase as any).from('credentials').delete().eq('id', 'gmail')
       setConnected(false)
     } catch (err) {
       console.error('Gmail disconnect error:', err)
