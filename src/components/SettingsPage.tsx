@@ -125,12 +125,12 @@ function SitesSection() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    supabase
+    ;(supabase as any)
       .from('credentials')
       .select('metadata')
       .eq('id', 'sites')
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data }: any) => {
         if (data?.metadata?.urls) {
           setUrls(data.metadata.urls as string[])
         }
