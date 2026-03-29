@@ -88,7 +88,7 @@ export function AssistantPromptEditor() {
         const updated = { ...productPrompts, [selectedProduct]: promptText }
         // Remove empty entries so the edge function falls back to default
         if (!promptText.trim()) delete updated[selectedProduct]
-        const { error } = await supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId)
+        const { error } = await (supabase as any).from('settings').update({ product_prompts: updated }).eq('id', settingsId)
         if (error) throw error
         setProductPrompts(updated)
       }
