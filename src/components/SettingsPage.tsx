@@ -39,12 +39,12 @@ function GmailSection() {
 
   useEffect(() => {
     // Check if gmail credentials exist
-    supabase
+    ;(supabase as any)
       .from('credentials')
       .select('id')
       .eq('id', 'gmail')
       .maybeSingle()
-      .then(({ data }) => setConnected(!!data))
+      .then(({ data }: any) => setConnected(!!data))
   }, [])
 
   const handleConnect = async () => {
