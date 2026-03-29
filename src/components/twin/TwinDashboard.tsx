@@ -133,7 +133,7 @@ export function TwinDashboard() {
         opps12h: rOpps.length,
       })
 
-      const loadedFlows = (flowsRes.data || []) as Flow[]
+      const loadedFlows = ((flowsRes.data || []) as any) as Flow[]
       setFlows(loadedFlows)
 
       // Restore last run results from DB
