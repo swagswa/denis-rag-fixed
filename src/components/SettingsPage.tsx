@@ -142,7 +142,7 @@ function SitesSection() {
       setSaving(true)
       try {
         const { data: { user } } = await supabase.auth.getUser()
-        await supabase.from('credentials').upsert({
+        await (supabase as any).from('credentials').upsert({
           user_id: user!.id,
           id: 'sites',
           metadata: { urls: nextUrls },

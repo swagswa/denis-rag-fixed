@@ -187,7 +187,7 @@ export function SearchPage() {
     if (controller.signal.aborted) return
 
     if (!error && data) {
-      setResults(data as SearchResultItem[])
+      setResults((data as any) as SearchResultItem[])
     } else {
       setResults([])
     }

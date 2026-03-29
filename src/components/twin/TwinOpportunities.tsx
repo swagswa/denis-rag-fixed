@@ -40,7 +40,7 @@ export function TwinOpportunities() {
     setShowForm(false); load()
   }
 
-  const handleStageChange = async (id: string, stage: string) => { await supabase.from('startup_opportunities').update({ stage, updated_at: new Date().toISOString() }).eq('id', id); load() }
+  const handleStageChange = async (id: string, stage: string) => { await (supabase as any).from('startup_opportunities').update({ stage, updated_at: new Date().toISOString() }).eq('id', id); load() }
   const handleDelete = async (id: string) => { if (!confirm('Удалить?')) return; await supabase.from('startup_opportunities').delete().eq('id', id); toast.success('Удалено'); load() }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full" /></div>

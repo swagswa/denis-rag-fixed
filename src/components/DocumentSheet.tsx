@@ -337,7 +337,7 @@ export function DocumentSheet({ documentId, onClose, onDelete, searchQuery }: Do
     if (!documentId) { setDoc(null); return }
     setLoading(true)
     supabase.from('documents').select('*').eq('id', documentId).single()
-      .then(({ data }) => { setDoc(data as Document | null); setLoading(false) })
+      .then(({ data }: any) => { setDoc(data as Document | null); setLoading(false) })
   }, [documentId])
 
   // Auto-scroll to first search match

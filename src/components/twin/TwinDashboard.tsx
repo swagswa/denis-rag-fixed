@@ -236,7 +236,7 @@ export function TwinDashboard() {
     // Save result to DB so it persists after reload
     const flow = flows.find(f => f.factory === factory)
     if (flow) {
-      await supabase.from('factory_flows').update({
+      await (supabase as any).from('factory_flows').update({
         last_run_at: new Date().toISOString(),
         last_run_result: { summary, timestamp: new Date().toISOString() },
       }).eq('id', flow.id)
