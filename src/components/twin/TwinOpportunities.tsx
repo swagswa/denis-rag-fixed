@@ -24,7 +24,7 @@ export function TwinOpportunities() {
   const [form, setForm] = useState({ idea: '', source: '', problem: '', market: '', monetization: '', complexity: 'low', mvp_timeline: '', solution: '', revenue_estimate: '' })
 
   const load = useCallback(async () => {
-    let q = supabase.from('startup_opportunities').select('*').order('created_at', { ascending: false })
+    let q = supabase.from('startup_opportunities').select('*').order('created_at', { ascending: false }) as any
     if (stageFilter !== 'all') q = q.eq('stage', stageFilter)
     const { data } = await q
     setOpps((data as Opportunity[]) || [])
