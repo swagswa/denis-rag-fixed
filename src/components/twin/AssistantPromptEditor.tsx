@@ -49,7 +49,7 @@ export function AssistantPromptEditor() {
         .from('settings')
         .select('id, system_prompt, product_prompts')
         .limit(1)
-        .single()
+        .single() as any
       if (data) {
         setSettingsId(data.id)
         setSystemPrompt(data.system_prompt || '')
@@ -88,7 +88,7 @@ export function AssistantPromptEditor() {
         const updated = { ...productPrompts, [selectedProduct]: promptText }
         // Remove empty entries so the edge function falls back to default
         if (!promptText.trim()) delete updated[selectedProduct]
-        const { error } = await supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId)
+        const { error } = await (supabase as any).from('settings').update({ product_prompts: updated }).eq('id', settingsId)
         if (error) throw error
         setProductPrompts(updated)
       }
@@ -245,7 +245,7 @@ export function AssistantPromptEditor() {
                   const updated = { ...productPrompts }
                   delete updated[selectedProduct]
                   setProductPrompts(updated)
-                  supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
+                  ;(supabase as any).from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
                 }}
                 className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-400 hover:bg-slate-800"
               >

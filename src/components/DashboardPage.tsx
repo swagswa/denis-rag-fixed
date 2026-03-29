@@ -233,7 +233,7 @@ export function DashboardPage() {
           }),
       )
 
-      const runsQuery = supabase
+      const runsQuery = (supabase as any)
         .from('sync_runs')
         .select('source, finished_at, status')
         .order('finished_at', { ascending: false })

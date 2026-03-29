@@ -156,7 +156,7 @@ export function DocumentsPage() {
 
       const { data, count, error } = await query
       if (error) throw error
-      setDocuments((data as DocListItem[]) ?? [])
+      setDocuments(((data as any) as DocListItem[]) ?? [])
       setTotalCount(count ?? 0)
     } catch (err) {
       console.error('Failed to fetch documents:', err)

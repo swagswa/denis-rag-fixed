@@ -39,12 +39,12 @@ function GmailSection() {
 
   useEffect(() => {
     // Check if gmail credentials exist
-    supabase
+    ;(supabase as any)
       .from('credentials')
       .select('id')
       .eq('id', 'gmail')
       .maybeSingle()
-      .then(({ data }) => setConnected(!!data))
+      .then(({ data }: any) => setConnected(!!data))
   }, [])
 
   const handleConnect = async () => {
@@ -63,7 +63,7 @@ function GmailSection() {
   const handleDisconnect = async () => {
     setLoading(true)
     try {
-      await supabase.from('credentials').delete().eq('id', 'gmail')
+      await (supabase as any).from('credentials').delete().eq('id', 'gmail')
       setConnected(false)
     } catch (err) {
       console.error('Gmail disconnect error:', err)
@@ -125,12 +125,12 @@ function SitesSection() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    supabase
+    ;(supabase as any)
       .from('credentials')
       .select('metadata')
       .eq('id', 'sites')
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data }: any) => {
         if (data?.metadata?.urls) {
           setUrls(data.metadata.urls as string[])
         }
@@ -142,7 +142,7 @@ function SitesSection() {
       setSaving(true)
       try {
         const { data: { user } } = await supabase.auth.getUser()
-        await supabase.from('credentials').upsert({
+        await (supabase as any).from('credentials').upsert({
           user_id: user!.id,
           id: 'sites',
           metadata: { urls: nextUrls },
