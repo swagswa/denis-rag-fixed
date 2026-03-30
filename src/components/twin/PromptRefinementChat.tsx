@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Wand2, Mic, MicOff, Send, Loader2 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kuodvlyepoojqimutmvu.supabase.co'
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS'
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`
 
 const PROMPT_REFINER_SYSTEM_PROMPT = `ROLE: You are a prompt editor machine. You receive a current system prompt and an edit instruction.
@@ -20,6 +21,20 @@ type HistoryItem = { instruction: string; timestamp: Date }
 interface Props {
   currentPrompt: string
   onApplyPrompt: (newPrompt: string) => void | Promise<void>
+}
+
+async function extractErrorMessage(resp: Response): Promise<string> {
+  if (resp.status === 429) return 'Слишком много запросов, попробуйте позже'
+  if (resp.status === 402) return 'Закончились кредиты AI'
+
+  try {
+    const payload = await resp.json()
+    if (typeof payload?.error === 'string' && payload.error.trim()) return payload.error
+  } catch {
+    // ignore JSON parsing errors
+  }
+
+  return 'Ошибка соединения'
 }
 
 export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
@@ -84,12 +99,18 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
     setStatus('Дорабатываю промпт...')
 
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const accessToken = session?.access_token
+      if (!accessToken) {
+        throw new Error('Сессия истекла. Обновите страницу и войдите снова.')
+      }
+
       const resp = await fetch(CHAT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
-          apikey: SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${accessToken}`,
+          ...(SUPABASE_PUBLISHABLE_KEY ? { apikey: SUPABASE_PUBLISHABLE_KEY } : {}),
         },
         body: JSON.stringify({
           messages: [{
@@ -106,10 +127,12 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
         }),
       })
 
-      if (!resp.ok || !resp.body) {
-        if (resp.status === 429) throw new Error('Слишком много запросов, попробуйте позже')
-        if (resp.status === 402) throw new Error('Закончились кредиты AI')
-        throw new Error('Ошибка соединения')
+      if (!resp.ok) {
+        throw new Error(await extractErrorMessage(resp))
+      }
+
+      if (!resp.body) {
+        throw new Error('Пустой ответ от сервера')
       }
 
       const reader = resp.body.getReader()
@@ -170,6 +193,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
       if (result.trim()) {
         let cleaned = result.trim()
         cleaned = cleaned.replace(/^Вот\s+обновл[её]нный\s+промпт:?\s*/i, '').trim()
+        cleaned = cleaned.replace(/^Here is(?: the)? updated prompt:?\s*/i, '').trim()
         if (cleaned.startsWith('```')) {
           cleaned = cleaned.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '')
         }
