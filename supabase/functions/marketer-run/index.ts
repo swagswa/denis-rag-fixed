@@ -281,15 +281,17 @@ ${brief}`;
           .eq("id", insight.id);
 
         // ═══ Feedback loop: сообщаем аналитику и скауту ═══
-        await supabase.from("agent_feedback").insert({
-          factory: "consulting",
-          from_agent: "marketer",
-          to_agent: "analyst",
-          feedback_type: "rejection_reason",
-          content: `Отклонил инсайт "${insight.title}": ${reason}. Нужны более конкретные инсайты с привязкой к реальным компаниям РФ/СНГ.`,
-          insight_id: insight.id,
-          signal_id: insight.signal_id || null,
-        } as any).catch((e: any) => console.error("Feedback insert error:", e));
+        try {
+          await supabase.from("agent_feedback").insert({
+            factory: "consulting",
+            from_agent: "marketer",
+            to_agent: "analyst",
+            feedback_type: "rejection_reason",
+            content: `Отклонил инсайт "${insight.title}": ${reason}. Нужны более конкретные инсайты с привязкой к реальным компаниям РФ/СНГ.`,
+            insight_id: insight.id,
+            signal_id: insight.signal_id || null,
+          } as any);
+        } catch (e: any) { console.error("Feedback insert error:", e); }
 
         returned++;
       }
