@@ -73,6 +73,8 @@ async function scrapeUrl(url: string, firecrawlKey: string): Promise<string | nu
 
 async function searchWeb(query: string, firecrawlKey: string): Promise<string | null> {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const response = await fetch("https://api.firecrawl.dev/v1/search", {
       method: "POST",
       headers: {
@@ -84,9 +86,11 @@ async function searchWeb(query: string, firecrawlKey: string): Promise<string | 
         limit: 5,
         lang: "ru",
         country: "RU",
-        tbs: "qdr:d", // last 24 hours
+        tbs: "qdr:d",
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       console.error(`Firecrawl search error for "${query}": ${response.status}`);
