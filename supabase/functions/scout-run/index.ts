@@ -344,18 +344,20 @@ ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI:\n${kpiContext}\n` : ""}
     }
 
     // ═══ PHASE 4: Логируем запуск ═══
-    await supabase.from("sync_runs").insert({
-      function_name: "scout-run",
-      status: "ok",
-      items_found: toInsert.length,
-      metadata: {
-        triggered_by: triggeredBy,
-        sources_scraped: scrapedData.length,
-        firecrawl_enabled: !!FIRECRAWL_API_KEY,
-        signals_consulting: toInsert.filter((s) => s.potential === "consulting").length,
-        signals_foundry: toInsert.filter((s) => s.potential === "foundry").length,
-      },
-    } as any).then(() => {}).catch((e: any) => console.error("sync_runs log error:", e));
+    try {
+      await supabase.from("sync_runs").insert({
+        function_name: "scout-run",
+        status: "ok",
+        items_found: toInsert.length,
+        metadata: {
+          triggered_by: triggeredBy,
+          sources_scraped: scrapedData.length,
+          firecrawl_enabled: !!FIRECRAWL_API_KEY,
+          signals_consulting: toInsert.filter((s) => s.potential === "consulting").length,
+          signals_foundry: toInsert.filter((s) => s.potential === "foundry").length,
+        },
+      } as any);
+    } catch (e: any) { console.error("sync_runs log error:", e); }
 
     return new Response(JSON.stringify({
       success: true,
