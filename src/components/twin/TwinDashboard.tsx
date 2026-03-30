@@ -38,10 +38,11 @@ interface ChatStats {
 
 interface RecentRun {
   id: string
-  function_name: string
+  source: string
   status: string
-  items_found: number
-  metadata: any
+  items_synced: number
+  started_at: string | null
+  finished_at: string | null
 }
 
 export function TwinDashboard() {
