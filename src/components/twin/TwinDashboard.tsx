@@ -83,7 +83,7 @@ export function TwinDashboard() {
       const leadsData = leadsRes.data || []
       const opps = oppsRes.data || []
       const feedback = feedbackRes.data || []
-      setRecentRuns((runsRes.data || []) as RecentRun[])
+      setRecentRuns((runsRes.data || []) as unknown as RecentRun[])
 
       // ═══ CONSULTING FUNNEL ═══
       const cSignals = signals.filter((s: any) => s.potential === 'consulting' || !s.potential)
