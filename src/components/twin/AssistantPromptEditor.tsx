@@ -129,9 +129,21 @@ export function AssistantPromptEditor() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)]">
-      <div className="mb-3">
-        <h2 className="text-xl font-bold text-slate-100">Промпт ассистента</h2>
-        <p className="mt-1 text-xs text-slate-500">Слева — промпт. Справа вверху — доработка с ИИ. Справа внизу — тестовый чат.</p>
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-100">Промпт ассистента</h2>
+          <p className="mt-1 text-xs text-slate-500">Слева — промпт. Справа вверху — доработка с ИИ. Справа внизу — тестовый чат.</p>
+        </div>
+        {systemPrompt.length < 1000 && (
+          <button
+            onClick={handleLoadPrepared}
+            disabled={saving}
+            className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" />
+            Загрузить подготовленные промты
+          </button>
+        )}
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-0">
