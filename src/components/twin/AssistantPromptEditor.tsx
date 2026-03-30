@@ -32,7 +32,6 @@ export function AssistantPromptEditor() {
   const [saving, setSaving] = useState(false)
   const [showDefault, setShowDefault] = useState(false)
 
-  // Load settings
   useEffect(() => {
     const load = async () => {
       const { data, error } = await supabase
@@ -40,24 +39,23 @@ export function AssistantPromptEditor() {
         .select('id, system_prompt, product_prompts')
         .limit(1)
         .single() as any
+
       if (error) {
         console.error('Settings load error:', error)
       }
+
       if (data) {
-        console.log('Settings loaded, system_prompt length:', data.system_prompt?.length, 'product_prompts keys:', Object.keys(data.product_prompts || {}))
         setSettingsId(data.id)
         setSystemPrompt(data.system_prompt || '')
-        const pp = data.product_prompts || {}
-        setProductPrompts(pp)
-      } else {
-        console.warn('No settings data returned')
+        setProductPrompts(data.product_prompts || {})
       }
+
       setLoading(false)
     }
+
     load()
   }, [])
 
-  // Update prompt text when product selection changes
   useEffect(() => {
     if (selectedProduct === 'general') {
       setPromptText(systemPrompt)
@@ -67,21 +65,28 @@ export function AssistantPromptEditor() {
     setShowDefault(false)
   }, [selectedProduct, systemPrompt, productPrompts])
 
+  const persistPrompt = async (product: ProductContext, value: string) => {
+    if (!settingsId) throw new Error('Настройки не загружены')
+
+    if (product === 'general') {
+      const { error } = await supabase.from('settings').update({ system_prompt: value }).eq('id', settingsId)
+      if (error) throw error
+      setSystemPrompt(value)
+      return
+    }
+
+    const updated = { ...productPrompts, [product]: value }
+    if (!value.trim()) delete updated[product]
+    const { error } = await supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId)
+    if (error) throw error
+    setProductPrompts(updated)
+  }
+
   const handleSave = async () => {
     if (!settingsId) return
     setSaving(true)
     try {
-      if (selectedProduct === 'general') {
-        const { error } = await supabase.from('settings').update({ system_prompt: promptText }).eq('id', settingsId)
-        if (error) throw error
-        setSystemPrompt(promptText)
-      } else {
-        const updated = { ...productPrompts, [selectedProduct]: promptText }
-        if (!promptText.trim()) delete updated[selectedProduct]
-        const { error } = await supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId)
-        if (error) throw error
-        setProductPrompts(updated)
-      }
+      await persistPrompt(selectedProduct, promptText)
       toast.success('Промпт сохранён')
     } catch (e: any) {
       toast.error(e.message)
@@ -90,22 +95,34 @@ export function AssistantPromptEditor() {
     }
   }
 
-  const handleApplyRefinedPrompt = (newPrompt: string) => {
+  const handleApplyRefinedPrompt = async (newPrompt: string) => {
     setPromptText(newPrompt)
-    toast.success('Промпт обновлён из доработки. Нажмите «Сохранить» для применения.')
+
+    if (!settingsId) {
+      toast.error('Промпт обновлён, но настройки ещё не загрузились. Нажмите «Сохранить».')
+      return
+    }
+
+    setSaving(true)
+    try {
+      await persistPrompt(selectedProduct, newPrompt)
+      toast.success('Промпт обновлён и сохранён')
+    } catch (e: any) {
+      toast.error('Промпт обновлён, но не сохранился: ' + (e.message || 'ошибка'))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleLoadPrepared = async () => {
     if (!settingsId) return
     setSaving(true)
     try {
-      // Try with product_prompts first
       let { error } = await supabase.from('settings').update({
         system_prompt: PREPARED_GENERAL_PROMPT,
         product_prompts: PREPARED_PRODUCT_PROMPTS as any,
       }).eq('id', settingsId)
-      
-      // If product_prompts column doesn't exist, save only system_prompt
+
       if (error && error.message?.includes('product_prompts')) {
         const res = await supabase.from('settings').update({
           system_prompt: PREPARED_GENERAL_PROMPT,
@@ -117,7 +134,7 @@ export function AssistantPromptEditor() {
       } else {
         toast.success('Все промты загружены и сохранены!')
       }
-      
+
       setSystemPrompt(PREPARED_GENERAL_PROMPT)
       setProductPrompts(PREPARED_PRODUCT_PROMPTS)
       if (selectedProduct === 'general') {
@@ -160,7 +177,6 @@ export function AssistantPromptEditor() {
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-0">
-        {/* LEFT — Prompt Editor */}
         <div className="flex flex-col min-h-0 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
           <div className="flex items-center gap-2 mb-2">
             <select
@@ -224,9 +240,7 @@ export function AssistantPromptEditor() {
           </div>
         </div>
 
-        {/* RIGHT — Refinement (top) + Test Chat (bottom) */}
         <div className="flex flex-col min-h-0 gap-3">
-          {/* Top: Prompt Refinement */}
           <div className="flex-1 min-h-0 rounded-xl border border-purple-800/40 bg-slate-900/60">
             <PromptRefinementChat
               currentPrompt={promptText}
@@ -234,7 +248,6 @@ export function AssistantPromptEditor() {
             />
           </div>
 
-          {/* Bottom: Test Chat */}
           <div className="flex-1 min-h-0 rounded-xl border border-slate-800 bg-slate-900/60">
             <TestChat
               promptText={promptText}
