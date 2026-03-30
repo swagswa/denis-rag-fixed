@@ -239,18 +239,16 @@ ${brief}`;
         ].filter(Boolean).join("\n");
 
         const { error: oppError } = await supabase.from("startup_opportunities").insert({
-          insight_id: insight.id,
           idea: compactText(item.idea, 160),
           problem: compactText(item.problem, 500),
           solution: compactText(item.solution, 500),
-          target_audience: compactText(item.target_audience, 200),
-          pricing: compactText(item.pricing, 120),
+          source: `insight:${insight.id}`,
           market: compactText(item.market, 300),
           monetization: compactText(item.monetization, 200),
           complexity: item.complexity === "low" ? "low" : "medium",
           revenue_estimate: Number(item.revenue_estimate) || 0,
           notes: compactText(detailedNotes, 1500),
-          status: "opportunity",
+          stage: "opportunity",
         } as any);
 
         if (oppError) {
