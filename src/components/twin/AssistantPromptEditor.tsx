@@ -34,16 +34,22 @@ export function AssistantPromptEditor() {
   // Load settings
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('settings')
         .select('id, system_prompt, product_prompts')
         .limit(1)
         .single() as any
+      if (error) {
+        console.error('Settings load error:', error)
+      }
       if (data) {
+        console.log('Settings loaded, system_prompt length:', data.system_prompt?.length, 'product_prompts keys:', Object.keys(data.product_prompts || {}))
         setSettingsId(data.id)
         setSystemPrompt(data.system_prompt || '')
         const pp = data.product_prompts || {}
         setProductPrompts(pp)
+      } else {
+        console.warn('No settings data returned')
       }
       setLoading(false)
     }
