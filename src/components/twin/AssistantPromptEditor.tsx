@@ -99,11 +99,25 @@ export function AssistantPromptEditor() {
     if (!settingsId) return
     setSaving(true)
     try {
-      const { error } = await supabase.from('settings').update({
+      // Try with product_prompts first
+      let { error } = await supabase.from('settings').update({
         system_prompt: PREPARED_GENERAL_PROMPT,
         product_prompts: PREPARED_PRODUCT_PROMPTS as any,
       }).eq('id', settingsId)
-      if (error) throw error
+      
+      // If product_prompts column doesn't exist, save only system_prompt
+      if (error && error.message?.includes('product_prompts')) {
+        const res = await supabase.from('settings').update({
+          system_prompt: PREPARED_GENERAL_PROMPT,
+        }).eq('id', settingsId)
+        if (res.error) throw res.error
+        toast.success('Основной промпт загружен! (Для product_prompts нужно добавить столбец в БД)')
+      } else if (error) {
+        throw error
+      } else {
+        toast.success('Все промты загружены и сохранены!')
+      }
+      
       setSystemPrompt(PREPARED_GENERAL_PROMPT)
       setProductPrompts(PREPARED_PRODUCT_PROMPTS)
       if (selectedProduct === 'general') {
@@ -111,7 +125,6 @@ export function AssistantPromptEditor() {
       } else {
         setPromptText(PREPARED_PRODUCT_PROMPTS[selectedProduct] || '')
       }
-      toast.success('Подготовленные промты загружены и сохранены!')
     } catch (e: any) {
       toast.error('Ошибка: ' + e.message)
     } finally {
