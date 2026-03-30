@@ -206,16 +206,19 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
 
       if (result.trim()) {
         let cleaned = result.trim()
+        // Strip common AI preambles
+        cleaned = cleaned.replace(/^(Вот|Готово|Добавил[аи]?|Обновил[аи]?|Я добавил[аи]?|Here is)[^\n]*\n+/i, '').trim()
         cleaned = cleaned.replace(/^Вот\s+обновл[её]нный\s+промпт:?\s*/i, '').trim()
         cleaned = cleaned.replace(/^Here is(?: the)? updated prompt:?\s*/i, '').trim()
         if (cleaned.startsWith('```')) {
           cleaned = cleaned.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '')
         }
 
-        const tooShort = cleaned.length < Math.max(200, Math.floor(currentPrompt.length * 0.35))
-        const looksLikeDialog = /^(понял|конечно|хорошо|сделаю|готово|ок)\b/i.test(cleaned)
+        // Validation: must be substantial (at least 50% of original or 200 chars)
+        const tooShort = cleaned.length < Math.max(200, Math.floor(currentPrompt.length * 0.5))
+        const looksLikeDialog = /^(понял|конечно|хорошо|сделаю|готово|ок|добавил|обновил|я добавил)\b/i.test(cleaned)
         if (tooShort || looksLikeDialog) {
-          throw new Error('ИИ вернул не полный обновлённый промпт. Сформулируй задачу короче и повтори.')
+          throw new Error('ИИ вернул не полный промпт. Попробуй сформулировать задачу иначе.')
         }
 
         await Promise.resolve(onApplyPrompt(cleaned))
