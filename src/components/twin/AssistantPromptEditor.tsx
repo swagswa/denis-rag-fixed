@@ -77,7 +77,7 @@ export function AssistantPromptEditor() {
       } else {
         const updated = { ...productPrompts, [selectedProduct]: promptText }
         if (!promptText.trim()) delete updated[selectedProduct]
-        const { error } = await (supabase as any).from('settings').update({ product_prompts: updated }).eq('id', settingsId)
+        const { error } = await supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId)
         if (error) throw error
         setProductPrompts(updated)
       }
