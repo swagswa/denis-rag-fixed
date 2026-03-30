@@ -292,12 +292,14 @@ ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI:\n${kpiContext}\n` : ""}
 
     let aiItems: any[] = [];
     try {
-      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      let cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (arrayMatch) cleaned = arrayMatch[0];
       aiItems = JSON.parse(cleaned);
-      if (!Array.isArray(aiItems)) aiItems = [];
+      if (!Array.isArray(aiItems)) aiItems = [aiItems];
     } catch {
-      console.error("Failed to parse scout JSON:", content);
-      throw new Error("Failed to parse AI response");
+      console.error("Failed to parse scout JSON:", content.slice(0, 500));
+      aiItems = [];
     }
 
     // ═══ PHASE 3: Дедупликация и вставка ═══

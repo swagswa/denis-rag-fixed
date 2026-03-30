@@ -170,12 +170,18 @@ ${brief}`;
 
     let aiItems: any[] = [];
     try {
-      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      let cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (arrayMatch) cleaned = arrayMatch[0];
       aiItems = JSON.parse(cleaned);
-      if (!Array.isArray(aiItems)) aiItems = [];
+      if (!Array.isArray(aiItems)) aiItems = [aiItems];
     } catch {
-      console.error("Failed to parse builder JSON:", content);
-      throw new Error("Failed to parse AI response");
+      console.error("Failed to parse builder JSON:", content.slice(0, 500));
+      return new Response(JSON.stringify({
+        success: true, insights_processed: queue.length,
+        opportunities_created: 0, returned_to_analyst: 0,
+        parse_warning: "AI returned non-JSON response",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     let oppsCreated = 0;
