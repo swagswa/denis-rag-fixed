@@ -95,6 +95,30 @@ export function AssistantPromptEditor() {
     toast.success('Промпт обновлён из доработки. Нажмите «Сохранить» для применения.')
   }
 
+  const handleLoadPrepared = async () => {
+    if (!settingsId) return
+    setSaving(true)
+    try {
+      const { error } = await supabase.from('settings').update({
+        system_prompt: PREPARED_GENERAL_PROMPT,
+        product_prompts: PREPARED_PRODUCT_PROMPTS as any,
+      }).eq('id', settingsId)
+      if (error) throw error
+      setSystemPrompt(PREPARED_GENERAL_PROMPT)
+      setProductPrompts(PREPARED_PRODUCT_PROMPTS)
+      if (selectedProduct === 'general') {
+        setPromptText(PREPARED_GENERAL_PROMPT)
+      } else {
+        setPromptText(PREPARED_PRODUCT_PROMPTS[selectedProduct] || '')
+      }
+      toast.success('Подготовленные промты загружены и сохранены!')
+    } catch (e: any) {
+      toast.error('Ошибка: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
