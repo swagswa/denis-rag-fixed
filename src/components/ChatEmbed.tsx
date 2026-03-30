@@ -137,6 +137,10 @@ export default function ChatEmbed() {
 
   const { isListening, toggle: toggleMic, supported: micSupported } = useSpeechRecognition(handleVoiceResult)
 
+  // ═══ PROACTIVE ENGAGEMENT ENGINE ═══
+  const proactiveFiredRef = useRef<Set<string>>(new Set())
+  const [chatOpen, setChatOpen] = useState(false) // whether user has interacted
+
   useEffect(() => {
     if (messages.length === 0) {
       setMessages([{ role: 'assistant', content: getGreeting(pageCtx) }])
@@ -146,6 +150,79 @@ export default function ChatEmbed() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
+
+  // Track if user has sent any message
+  useEffect(() => {
+    if (messages.some(m => m.role === 'user')) setChatOpen(true)
+  }, [messages])
+
+  // Proactive triggers based on visitor behavior
+  useEffect(() => {
+    if (chatOpen) return // Don't interrupt active conversations
+
+    const fired = proactiveFiredRef.current
+
+    // Trigger 1: User spent 30+ seconds on page without chatting
+    const timeTimer = setTimeout(() => {
+      if (fired.has('time') || chatOpen) return
+      fired.add('time')
+      const ctx = collectVisitorContext()
+      const section = ctx.currentSection
+      const { site, product } = getSiteProduct(pageCtx)
+
+      let nudge = ''
+      if (site === 'foundry') {
+        nudge = 'Вижу, что вы изучаете Foundry. Есть вопрос по проектам или хотите обсудить свою идею? Я могу помочь разобраться 👋'
+      } else if (product === 'aisovetnik') {
+        nudge = 'Заметил, что вы изучаете ИИ-Советник. Хотите узнать, как это работает конкретно в вашей ситуации?'
+      } else if (product === 'aitransformation') {
+        nudge = 'Вы уже полминуты на странице трансформации. Расскажите, что сейчас буксует в бизнесе — подскажу, с чего начать.'
+      } else {
+        nudge = 'Привет! Вижу, что вы изучаете услуги. Есть конкретный запрос? Могу подсказать, что подойдёт именно вам.'
+      }
+
+      setMessages(prev => [...prev, { role: 'assistant', content: nudge }])
+    }, 30000)
+
+    // Trigger 2: User scrolled past 60% of page (high interest signal)
+    const scrollHandler = () => {
+      if (fired.has('scroll') || chatOpen) return
+      const scrollTop = window.scrollY || document.documentElement.scrollTop
+      const docHeight = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)
+      const winHeight = window.innerHeight
+      const pct = docHeight <= winHeight ? 100 : (scrollTop / (docHeight - winHeight)) * 100
+
+      if (pct >= 60) {
+        fired.add('scroll')
+        const { site } = getSiteProduct(pageCtx)
+        const msg = site === 'foundry'
+          ? 'Вы дошли до конца страницы — значит интересно! Давайте обсудим, чем Foundry может быть полезна для вас?'
+          : 'Вижу, вы внимательно изучаете. Остались вопросы? Я могу рассказать подробнее или подобрать подходящий формат работы.'
+        setMessages(prev => [...prev, { role: 'assistant', content: msg }])
+      }
+    }
+
+    // Trigger 3: Returning visitor (2+ visit)
+    const returnTimer = setTimeout(() => {
+      if (fired.has('return') || chatOpen) return
+      const ctx = collectVisitorContext()
+      if (ctx.isReturning && ctx.visitCount >= 2) {
+        fired.add('return')
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Рад снова видеть! Вы уже ${ctx.visitCount}-й раз заходите. Видимо, что-то зацепило — давайте обсудим, чем могу помочь?`
+        }])
+      }
+    }, 5000)
+
+    window.addEventListener('scroll', scrollHandler, { passive: true })
+
+    return () => {
+      clearTimeout(timeTimer)
+      clearTimeout(returnTimer)
+      window.removeEventListener('scroll', scrollHandler)
+    }
+  }, [chatOpen, pageCtx])
 
   const send = useCallback(async (overrideText?: string) => {
     const text = (overrideText || input).trim()
