@@ -164,7 +164,7 @@ export function AssistantPromptEditor() {
                   const updated = { ...productPrompts }
                   delete updated[selectedProduct]
                   setProductPrompts(updated)
-                  ;(supabase as any).from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
+                  ;supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
                 }}
                 className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
               >
