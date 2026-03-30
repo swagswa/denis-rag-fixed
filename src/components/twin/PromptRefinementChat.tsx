@@ -2,7 +2,19 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Wand2, Mic, MicOff, Send, Loader2 } from 'lucide-react'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kuodvlyepoojqimutmvu.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS'
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS'
+const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`
+
+const PROMPT_REFINER_SYSTEM_PROMPT = `Ты — редактор системных промптов.
+
+ЗАДАЧА:
+- Получаешь текущий промпт и инструкцию по изменению.
+- Вносишь только запрошенные изменения.
+- Сохраняешь всю остальную структуру и смысл без изменений.
+
+ФОРМАТ ОТВЕТА:
+- Верни только полный обновлённый промпт целиком.
+- Без комментариев, пояснений, префиксов, markdown-блоков и кавычек.`
 
 type HistoryItem = { instruction: string; timestamp: Date }
 
@@ -72,52 +84,96 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
     setStatus('Дорабатываю промпт...')
 
     try {
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/prompt-refine`, {
+      const resp = await fetch(CHAT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+          apikey: SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({
-          instruction,
-          currentPrompt,
+          messages: [{
+            role: 'user',
+            content: `ТЕКУЩИЙ ПРОМПТ:\n---\n${currentPrompt}\n---\n\nИНСТРУКЦИЯ:\n${instruction}`,
+          }],
+          sessionId: `prompt-refine-${Date.now()}`,
+          pageContext: { url: window.location.href, title: 'Prompt Refine', section: 'assistant-prompt-refine' },
+          system_prompt_override: PROMPT_REFINER_SYSTEM_PROMPT,
+          model: 'openai/gpt-5.2',
+          model_override: 'openai/gpt-5.2',
+          force_model: 'openai/gpt-5.2',
+          isTest: true,
         }),
       })
 
-      if (!resp.ok || !resp.body) throw new Error('Ошибка соединения')
+      if (!resp.ok || !resp.body) {
+        if (resp.status === 429) throw new Error('Слишком много запросов, попробуйте позже')
+        if (resp.status === 402) throw new Error('Закончились кредиты AI')
+        throw new Error('Ошибка соединения')
+      }
 
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let textBuffer = ''
       let result = ''
+      let streamDone = false
 
-      while (true) {
+      while (!streamDone) {
         const { done, value } = await reader.read()
         if (done) break
+
         textBuffer += decoder.decode(value, { stream: true })
         let idx: number
         while ((idx = textBuffer.indexOf('\n')) !== -1) {
           let line = textBuffer.slice(0, idx)
           textBuffer = textBuffer.slice(idx + 1)
+
           if (line.endsWith('\r')) line = line.slice(0, -1)
           if (line.startsWith(':') || line.trim() === '' || !line.startsWith('data: ')) continue
+
           const jsonStr = line.slice(6).trim()
-          if (jsonStr === '[DONE]') break
+          if (jsonStr === '[DONE]') {
+            streamDone = true
+            break
+          }
+
           try {
             const parsed = JSON.parse(jsonStr)
             const content = parsed.choices?.[0]?.delta?.content as string | undefined
             if (content) result += content
-          } catch { break }
+          } catch {
+            textBuffer = `${line}\n${textBuffer}`
+            break
+          }
+        }
+      }
+
+      if (textBuffer.trim()) {
+        for (let raw of textBuffer.split('\n')) {
+          if (!raw) continue
+          if (raw.endsWith('\r')) raw = raw.slice(0, -1)
+          if (raw.startsWith(':') || raw.trim() === '' || !raw.startsWith('data: ')) continue
+
+          const jsonStr = raw.slice(6).trim()
+          if (jsonStr === '[DONE]') continue
+
+          try {
+            const parsed = JSON.parse(jsonStr)
+            const content = parsed.choices?.[0]?.delta?.content as string | undefined
+            if (content) result += content
+          } catch {
+            // ignore tail garbage
+          }
         }
       }
 
       if (result.trim()) {
-        // Strip markdown code fences if AI wrapped the response
         let cleaned = result.trim()
+        cleaned = cleaned.replace(/^Вот\s+обновл[её]нный\s+промпт:?\s*/i, '').trim()
         if (cleaned.startsWith('```')) {
           cleaned = cleaned.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '')
         }
+
         onApplyPrompt(cleaned)
         setHistory(prev => [{ instruction, timestamp: new Date() }, ...prev])
         setStatus('✅ Промпт обновлён. Нажмите «Сохранить» слева.')
