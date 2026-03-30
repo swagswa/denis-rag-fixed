@@ -214,6 +214,7 @@ ${brief}`;
             } as any)
             .eq("id", insight.id);
 
+        try {
           await supabase.from("agent_feedback").insert({
             factory: "consulting",
             from_agent: "marketer",
@@ -221,7 +222,8 @@ ${brief}`;
             feedback_type: "quality_issue",
             content: `Инсайт "${insight.title}" не удалось приземлить: GPT не смог найти компанию/ЛПР. Нужен более конкретный профиль ЦА с указанием отрасли, размера, конкретных признаков боли.`,
             insight_id: insight.id,
-          } as any).catch((e: any) => console.error("Feedback insert error:", e));
+          } as any);
+        } catch (e: any) { console.error("Feedback insert error:", e); }
 
           returned++;
           continue;
