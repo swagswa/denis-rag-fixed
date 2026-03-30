@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import { Save, Eye, Upload } from 'lucide-react'
+import { Save, Eye } from 'lucide-react'
 import { PromptRefinementChat } from './PromptRefinementChat'
 import { TestChat } from './TestChat'
-import { PREPARED_GENERAL_PROMPT, PREPARED_PRODUCT_PROMPTS } from '@/lib/prepared-prompts'
 
 type ProductContext = 'general' | 'foundry' | 'aisovetnik' | 'aitransformation'
 
@@ -20,16 +19,6 @@ const SECTION_MAP: Record<ProductContext, string> = {
   foundry: 'agent-fo.lovableproject.com',
   aisovetnik: 'ai-advisor',
   aitransformation: 'ai-transformation',
-}
-
-const LEGACY_FOUNDRY_PROMPT_MARKERS = [
-  'Ты — представитель Foundry, AI-фабрики продуктов Дениса Матеева.',
-  'Привет! Foundry — это AI-студия',
-]
-
-function isLegacyFoundryPrompt(value: unknown) {
-  if (typeof value !== 'string' || !value.trim()) return false
-  return LEGACY_FOUNDRY_PROMPT_MARKERS.some(marker => value.includes(marker))
 }
 
 export function AssistantPromptEditor() {
@@ -50,31 +39,12 @@ export function AssistantPromptEditor() {
         .limit(1)
         .single() as any
 
-      if (error) {
-        console.error('Settings load error:', error)
-      }
+      if (error) console.error('Settings load error:', error)
 
       if (data) {
         setSettingsId(data.id)
         setSystemPrompt(data.system_prompt || '')
-
-        let loadedPrompts: Record<string, string> = data.product_prompts || {}
-        if (isLegacyFoundryPrompt(loadedPrompts.foundry) && PREPARED_PRODUCT_PROMPTS.foundry) {
-          const upgraded = { ...loadedPrompts, foundry: PREPARED_PRODUCT_PROMPTS.foundry }
-          const { error: upgradeError } = await supabase
-            .from('settings')
-            .update({ product_prompts: upgraded })
-            .eq('id', data.id)
-
-          if (upgradeError) {
-            console.error('Foundry prompt upgrade failed:', upgradeError)
-          } else {
-            loadedPrompts = upgraded
-            toast.success('Foundry-промпт обновлён до актуальной версии')
-          }
-        }
-
-        setProductPrompts(loadedPrompts)
+        setProductPrompts(data.product_prompts || {})
       }
 
       setLoading(false)
@@ -126,7 +96,7 @@ export function AssistantPromptEditor() {
     setPromptText(newPrompt)
 
     if (!settingsId) {
-      toast.error('Промпт обновлён, но настройки ещё не загрузились. Нажмите «Сохранить».')
+      toast.error('Промпт обновлён локально. Нажмите «Сохранить».')
       return
     }
 
@@ -136,41 +106,6 @@ export function AssistantPromptEditor() {
       toast.success('Промпт обновлён и сохранён')
     } catch (e: any) {
       toast.error('Промпт обновлён, но не сохранился: ' + (e.message || 'ошибка'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleLoadPrepared = async () => {
-    if (!settingsId) return
-    setSaving(true)
-    try {
-      let { error } = await supabase.from('settings').update({
-        system_prompt: PREPARED_GENERAL_PROMPT,
-        product_prompts: PREPARED_PRODUCT_PROMPTS as any,
-      }).eq('id', settingsId)
-
-      if (error && error.message?.includes('product_prompts')) {
-        const res = await supabase.from('settings').update({
-          system_prompt: PREPARED_GENERAL_PROMPT,
-        }).eq('id', settingsId)
-        if (res.error) throw res.error
-        toast.success('Основной промпт загружен! (Для product_prompts нужно добавить столбец в БД)')
-      } else if (error) {
-        throw error
-      } else {
-        toast.success('Все промты загружены и сохранены!')
-      }
-
-      setSystemPrompt(PREPARED_GENERAL_PROMPT)
-      setProductPrompts(PREPARED_PRODUCT_PROMPTS)
-      if (selectedProduct === 'general') {
-        setPromptText(PREPARED_GENERAL_PROMPT)
-      } else {
-        setPromptText(PREPARED_PRODUCT_PROMPTS[selectedProduct] || '')
-      }
-    } catch (e: any) {
-      toast.error('Ошибка: ' + e.message)
     } finally {
       setSaving(false)
     }
@@ -186,19 +121,9 @@ export function AssistantPromptEditor() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)]">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-100">Промпт ассистента</h2>
-          <p className="mt-1 text-xs text-slate-500">Слева — промпт. Справа вверху — доработка с ИИ. Справа внизу — тестовый чат.</p>
-        </div>
-        <button
-          onClick={handleLoadPrepared}
-          disabled={saving}
-          className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" />
-          Загрузить подготовленные промты
-        </button>
+      <div className="mb-3">
+        <h2 className="text-xl font-bold text-slate-100">Промпт ассистента</h2>
+        <p className="mt-1 text-xs text-slate-500">Слева — промпт. Справа вверху — доработка с ИИ. Справа внизу — тестовый чат.</p>
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-0">
@@ -255,7 +180,7 @@ export function AssistantPromptEditor() {
                   const updated = { ...productPrompts }
                   delete updated[selectedProduct]
                   setProductPrompts(updated)
-                  ;supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
+                  supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
                 }}
                 className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
               >
