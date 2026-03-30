@@ -20,7 +20,7 @@ type HistoryItem = { instruction: string; timestamp: Date }
 
 interface Props {
   currentPrompt: string
-  onApplyPrompt: (newPrompt: string) => void
+  onApplyPrompt: (newPrompt: string) => void | Promise<void>
 }
 
 export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
@@ -64,6 +64,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
       }
       setInput(finalTranscript + interim)
     }
+
     recognition.onerror = () => setIsRecording(false)
     recognition.onend = () => setIsRecording(false)
     recognition.start()
@@ -174,9 +175,15 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
           cleaned = cleaned.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '')
         }
 
-        onApplyPrompt(cleaned)
+        const tooShort = cleaned.length < Math.max(200, Math.floor(currentPrompt.length * 0.35))
+        const looksLikeDialog = /^(понял|конечно|хорошо|сделаю|готово|ок)\b/i.test(cleaned)
+        if (tooShort || looksLikeDialog) {
+          throw new Error('ИИ вернул не полный обновлённый промпт. Сформулируй задачу короче и повтори.')
+        }
+
+        await Promise.resolve(onApplyPrompt(cleaned))
         setHistory(prev => [{ instruction, timestamp: new Date() }, ...prev])
-        setStatus('✅ Промпт обновлён. Нажмите «Сохранить» слева.')
+        setStatus('✅ Промпт обновлён и сохранён.')
       } else {
         setStatus('⚠️ Пустой ответ от ИИ')
       }
@@ -194,7 +201,6 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
         <span className="text-xs font-medium text-slate-300">Доработка промпта</span>
       </div>
 
-      {/* History of changes */}
       <div className="flex-1 overflow-y-auto px-3 py-2 min-h-0">
         {history.length === 0 && !status && (
           <p className="text-center text-xs text-slate-600 py-4">
@@ -220,7 +226,6 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
         ))}
       </div>
 
-      {/* Input */}
       <form onSubmit={e => { e.preventDefault(); handleRefine() }} className="flex items-center gap-2 px-3 py-2 border-t border-slate-800">
         <button
           type="button"
