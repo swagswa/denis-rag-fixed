@@ -55,9 +55,6 @@ export function TwinDashboard() {
   const [chatStats, setChatStats] = useState<ChatStats>({ total: 0, today: 0, chatLeads: 0, conversionRate: '0' })
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [runningFlow, setRunningFlow] = useState<string | null>(null)
-  const [runStep, setRunStep] = useState<string>('')
-  const [runResult, setRunResult] = useState<Record<string, string>>({})
 
 
   const loadData = async () => {
