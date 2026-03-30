@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-
-import { classifyAssistantSite } from '@/lib/assistant-site'
-import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench } from 'lucide-react'
+import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench, ArrowDown, TrendingUp, TrendingDown } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Flow {
@@ -14,19 +12,12 @@ interface Flow {
   last_run_result: Record<string, any> | null
 }
 
-interface FactoryStats {
-  signals: number
-  insights: number
-  qualifiedInsights: number
-  returnedInsights: number
-  leads: number
-  pendingLeads: number
-  opportunities: number
-  pendingOpps: number
-  signals12h: number
-  insights12h: number
-  leads12h: number
-  opps12h: number
+interface FunnelStage {
+  label: string
+  icon: any
+  count: number
+  target: number
+  conversion: string
 }
 
 interface PendingItem {
@@ -45,118 +36,106 @@ interface ChatStats {
   conversionRate: string
 }
 
-const EMPTY_STATS: FactoryStats = { signals: 0, insights: 0, qualifiedInsights: 0, returnedInsights: 0, leads: 0, pendingLeads: 0, opportunities: 0, pendingOpps: 0, signals12h: 0, insights12h: 0, leads12h: 0, opps12h: 0 }
-
 export function TwinDashboard() {
-  const [consulting, setConsulting] = useState<FactoryStats>(EMPTY_STATS)
-  const [foundry, setFoundry] = useState<FactoryStats>(EMPTY_STATS)
+  const [consultingFunnel, setConsultingFunnel] = useState<FunnelStage[]>([])
+  const [foundryFunnel, setFoundryFunnel] = useState<FunnelStage[]>([])
   const [flows, setFlows] = useState<Flow[]>([])
   const [pending, setPending] = useState<PendingItem[]>([])
   const [chatStats, setChatStats] = useState<ChatStats>({ total: 0, today: 0, chatLeads: 0, conversionRate: '0' })
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
-
+  const [bottlenecks, setBottlenecks] = useState<{ factory: string; message: string }[]>([])
 
   const loadData = async () => {
-    const cutoff12h = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString()
+    const monthStart = new Date()
+    monthStart.setDate(1)
+    monthStart.setHours(0, 0, 0, 0)
+    const monthISO = monthStart.toISOString()
+
+    const dayOfMonth = new Date().getDate()
+    const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()
+    const progress = dayOfMonth / daysInMonth
 
     try {
-      const [signalsRes, insightsRes, leadsRes, oppsRes, flowsRes,
-             rSignalsRes, rInsightsRes, rLeadsRes, rOppsRes,
-             chatsRes, chatLeadsRes] = await Promise.all([
-        supabase.from('signals').select('id, status, potential'),
-        supabase.from('insights').select('id, status, opportunity_type'),
+      const [signalsRes, insightsRes, leadsRes, oppsRes, flowsRes, chatsRes, chatLeadsRes, feedbackRes] = await Promise.all([
+        supabase.from('signals').select('id, status, potential').gte('created_at', monthISO),
+        supabase.from('insights').select('id, status, opportunity_type').gte('created_at', monthISO),
         supabase.from('leads').select('id, status, company_name, name, message, lead_summary, role, created_at, session_id, topic_guess'),
         supabase.from('startup_opportunities').select('id, stage, idea, problem, solution, market, monetization, notes, created_at, revenue_estimate, source'),
         supabase.from('factory_flows').select('id, factory, name, status, last_run_at, last_run_result'),
-        // 12h counts
-        supabase.from('signals').select('id, potential').gte('created_at', cutoff12h),
-        supabase.from('insights').select('id, opportunity_type').gte('created_at', cutoff12h),
-        supabase.from('leads').select('id').gte('created_at', cutoff12h),
-        supabase.from('startup_opportunities').select('id').gte('created_at', cutoff12h),
-        // Chat stats
         supabase.from('conversations').select('id, page, session_id, created_at'),
         supabase.from('leads').select('id, session_id').not('session_id', 'is', null),
+        supabase.from('agent_feedback').select('factory, content, feedback_type').eq('from_agent', 'chain-runner').eq('resolved', false),
       ])
 
       const signals = signalsRes.data || []
       const insights = insightsRes.data || []
       const leadsData = leadsRes.data || []
       const opps = oppsRes.data || []
-      const rSignals = rSignalsRes.data || []
-      const rInsights = rInsightsRes.data || []
-      const rLeads = rLeadsRes.data || []
-      const rOpps = rOppsRes.data || []
+      const feedback = feedbackRes.data || []
 
-      // Consulting stats
+      // ═══ CONSULTING FUNNEL ═══
       const cSignals = signals.filter((s: any) => s.potential === 'consulting' || !s.potential)
       const cInsights = insights.filter((i: any) => i.opportunity_type === 'consulting')
-      const cLeads = leadsData.filter((l: any) => !l.session_id && l.topic_guess?.startsWith('insight:') || l.status === 'pending_approval' || l.status === 'approved' || l.status === 'sent')
-      const pLeads = leadsData.filter((l: any) => l.status === 'pending_approval')
+      const cQualified = cInsights.filter((i: any) => i.status === 'qualified' || i.status === 'processed')
+      const cReturned = cInsights.filter((i: any) => i.status === 'returned')
+      const cLeads = leadsData.filter((l: any) => !l.session_id && (l.topic_guess?.startsWith('insight:') || l.status === 'pending_approval' || l.status === 'approved' || l.status === 'sent'))
+      const cPending = leadsData.filter((l: any) => l.status === 'pending_approval')
+      const cApproved = leadsData.filter((l: any) => l.status === 'approved' || l.status === 'sent')
 
-      setConsulting({
-        signals: cSignals.length,
-        insights: cInsights.length,
-        qualifiedInsights: cInsights.filter((i: any) => i.status === 'qualified').length,
-        returnedInsights: cInsights.filter((i: any) => i.status === 'returned').length,
-        leads: cLeads.length,
-        pendingLeads: pLeads.length,
-        opportunities: 0,
-        pendingOpps: 0,
-        signals12h: rSignals.filter((s: any) => s.potential === 'consulting' || !s.potential).length,
-        insights12h: rInsights.filter((i: any) => i.opportunity_type === 'consulting').length,
-        leads12h: rLeads.length,
-        opps12h: 0,
-      })
+      const cTargets = { signals: Math.round(900 * progress), insights: Math.round(450 * progress), leads: Math.round(90 * progress), deals: Math.round(2 * progress) }
 
-      // Foundry stats
+      setConsultingFunnel([
+        { label: 'Сигналы', icon: Search, count: cSignals.length, target: cTargets.signals, conversion: '—' },
+        { label: 'Инсайты', icon: Lightbulb, count: cInsights.length, target: cTargets.insights, conversion: cSignals.length > 0 ? `${(cInsights.length / cSignals.length * 100).toFixed(0)}%` : '—' },
+        { label: 'Лиды', icon: MessageSquare, count: cLeads.length, target: cTargets.leads, conversion: cInsights.length > 0 ? `${(cLeads.length / cInsights.length * 100).toFixed(0)}%` : '—' },
+        { label: 'Сделки', icon: ShoppingCart, count: cApproved.length, target: cTargets.deals, conversion: cLeads.length > 0 ? `${(cApproved.length / cLeads.length * 100).toFixed(0)}%` : '—' },
+      ])
+
+      // ═══ FOUNDRY FUNNEL ═══
       const fSignals = signals.filter((s: any) => s.potential === 'foundry')
       const fInsights = insights.filter((i: any) => i.opportunity_type === 'foundry' || i.opportunity_type === 'innovation_pilot')
-      const activeOpps = opps.filter((o: any) => o.stage !== 'killed')
-      const pOpps = opps.filter((o: any) => o.stage === 'opportunity' && o.source === 'builder_agent')
+      const fQualified = fInsights.filter((i: any) => i.status === 'qualified' || i.status === 'processed')
+      const fOpps = opps.filter((o: any) => o.stage !== 'killed')
+      const fPendingOpps = opps.filter((o: any) => o.stage === 'opportunity')
 
-      setFoundry({
-        signals: fSignals.length,
-        insights: fInsights.length,
-        qualifiedInsights: fInsights.filter((i: any) => i.status === 'qualified').length,
-        returnedInsights: fInsights.filter((i: any) => i.status === 'returned').length,
-        leads: 0,
-        pendingLeads: 0,
-        opportunities: activeOpps.length,
-        pendingOpps: pOpps.length,
-        signals12h: rSignals.filter((s: any) => s.potential === 'foundry').length,
-        insights12h: rInsights.filter((i: any) => i.opportunity_type === 'foundry' || i.opportunity_type === 'innovation_pilot').length,
-        leads12h: 0,
-        opps12h: rOpps.length,
-      })
+      const fTargets = { signals: Math.round(450 * progress), insights: Math.round(150 * progress), opps: Math.round(3 * progress) }
 
-      const loadedFlows = ((flowsRes.data || []) as any) as Flow[]
-      setFlows(loadedFlows)
+      setFoundryFunnel([
+        { label: 'Сигналы', icon: Search, count: fSignals.length, target: fTargets.signals, conversion: '—' },
+        { label: 'Инсайты', icon: Lightbulb, count: fInsights.length, target: fTargets.insights, conversion: fSignals.length > 0 ? `${(fInsights.length / fSignals.length * 100).toFixed(0)}%` : '—' },
+        { label: 'Проекты', icon: Wrench, count: fOpps.length, target: fTargets.opps, conversion: fInsights.length > 0 ? `${(fOpps.length / fInsights.length * 100).toFixed(0)}%` : '—' },
+      ])
 
+      // ═══ BOTTLENECKS from chain-runner feedback ═══
+      setBottlenecks(feedback.map((f: any) => ({ factory: f.factory, message: f.content })))
 
-      // Pending items
+      // ═══ FLOWS ═══
+      setFlows((flowsRes.data || []) as Flow[])
+
+      // ═══ PENDING ITEMS ═══
       const pendingItems: PendingItem[] = []
-      pLeads.forEach((l: any) => pendingItems.push({
+      cPending.forEach((l: any) => pendingItems.push({
         id: l.id, type: 'lead',
         title: l.company_name || l.name || 'Лид',
         approvalRequest: l.lead_summary || 'Маркетолог предлагает outreach. Одобрите?',
         details: l.message || '',
         date: new Date(l.created_at).toLocaleDateString('ru'),
       }))
-      pOpps.forEach((o: any) => {
+      fPendingOpps.forEach((o: any) => {
         const notesLines = (o.notes || '').split('\n')
-        const requestLine = notesLines.find((l: string) => l.startsWith('ЗАПРОС:'))
+        const requestLine = notesLines.find((l: string) => l.startsWith('✅ ЗАПРОС'))
         pendingItems.push({
           id: o.id, type: 'opportunity',
           title: o.idea || 'Проект',
-          approvalRequest: requestLine ? requestLine.replace('ЗАПРОС:', '').trim() : `Создатель предлагает "${o.idea}". Запускаем?`,
+          approvalRequest: requestLine ? requestLine.replace('✅ ЗАПРОС НА ОДОБРЕНИЕ:', '').trim() : `Создатель предлагает "${o.idea}". Запускаем?`,
           details: o.notes || '',
           date: new Date(o.created_at).toLocaleDateString('ru'),
         })
       })
       setPending(pendingItems)
 
-      // Chat stats — лиды ТОЛЬКО из чата (session_id есть в conversations)
+      // ═══ CHAT STATS ═══
       const chats = chatsRes.data || []
       const chatLeadRows = chatLeadsRes.data || []
       const chatSessionIds = new Set(chats.map((c: any) => c.session_id).filter(Boolean))
@@ -186,26 +165,22 @@ export function TwinDashboard() {
     loadData()
   }
 
-
   const approveLead = async (id: string) => {
     const { error } = await supabase.from('leads').update({ status: 'approved' }).eq('id', id)
     if (error) { toast.error(error.message); return }
     toast.success('✅ Outreach одобрен')
     setPending(prev => prev.filter(p => p.id !== id)); loadData()
   }
-
   const rejectLead = async (id: string) => {
     await supabase.from('leads').update({ status: 'rejected' }).eq('id', id)
     toast.success('Отклонено')
     setPending(prev => prev.filter(p => p.id !== id))
   }
-
   const approveOpportunity = async (id: string) => {
     await supabase.from('startup_opportunities').update({ stage: 'concept', updated_at: new Date().toISOString() }).eq('id', id)
     toast.success('🚀 Проект одобрен')
     setPending(prev => prev.filter(p => p.id !== id)); loadData()
   }
-
   const rejectOpportunity = async (id: string) => {
     await supabase.from('startup_opportunities').update({ stage: 'killed' }).eq('id', id)
     toast.success('Проект отклонён')
@@ -218,35 +193,41 @@ export function TwinDashboard() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-slate-100">Дашборд</h2>
-        <p className="mt-1 text-sm text-slate-500">Агенты работают автоматически. Вы решаете только финальные вопросы.</p>
+        <p className="mt-1 text-sm text-slate-500">Воронки обновляются автоматически. Система сама оптимизирует агентов под KPI.</p>
       </div>
 
-      {/* Factory Cards with built-in controls */}
+      {/* Bottlenecks / Auto-optimization alerts */}
+      {bottlenecks.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
+          <h3 className="text-sm font-semibold text-amber-400">⚡ Система обнаружила узкие места</h3>
+          {bottlenecks.map((b, i) => (
+            <div key={i} className="text-xs text-amber-300/80 flex gap-2">
+              <span className="shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">{b.factory}</span>
+              <span>{b.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Factory Funnels */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <FactoryCard
+        <FunnelCard
           title="🤝 Consulting Factory"
-          flows={flows.filter(f => f.factory === 'consulting')}
+          subtitle="Цель: 2 сделки / 10 лидов в мес"
+          stages={consultingFunnel}
+          flow={flows.find(f => f.factory === 'consulting')}
           onToggleFlow={toggleFlow}
-          metrics={[
-            { icon: Search, label: 'Сигналы', value: consulting.signals, delta: consulting.signals12h, sub: 'найдено скаутом' },
-            { icon: Lightbulb, label: 'Инсайты', value: consulting.insights, delta: consulting.insights12h, sub: `${consulting.qualifiedInsights} квалифиц.` },
-            { icon: MessageSquare, label: 'Outreach', value: consulting.leads, delta: consulting.leads12h, sub: `${consulting.pendingLeads} ждут решения` },
-            { icon: ShoppingCart, label: 'Сделки', value: 0, delta: 0, sub: 'в очереди' },
-          ]}
         />
-        <FactoryCard
+        <FunnelCard
           title="🚀 Foundry Factory"
-          flows={flows.filter(f => f.factory === 'foundry')}
+          subtitle="Цель: 1 проект / 200К ₽ в мес"
+          stages={foundryFunnel}
+          flow={flows.find(f => f.factory === 'foundry')}
           onToggleFlow={toggleFlow}
-          metrics={[
-            { icon: Search, label: 'Сигналы', value: foundry.signals, delta: foundry.signals12h, sub: 'найдено скаутом' },
-            { icon: Lightbulb, label: 'Инсайты', value: foundry.insights, delta: foundry.insights12h, sub: `${foundry.qualifiedInsights} квалифиц.` },
-            { icon: Wrench, label: 'Проекты', value: foundry.opportunities, delta: foundry.opps12h, sub: `${foundry.pendingOpps} ждут решения` },
-          ]}
         />
       </div>
 
-      {/* Block 3: Pending Approvals */}
+      {/* Pending Approvals */}
       {pending.length > 0 ? (
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
           <div className="mb-3 flex items-center gap-2"><AlertCircle className="h-5 w-5 text-blue-400" /><h3 className="font-semibold text-slate-100">Агенты спрашивают ({pending.length})</h3></div>
@@ -279,13 +260,13 @@ export function TwinDashboard() {
         </div>
       )}
 
-      {/* Block 4: Chat Stats (compact) */}
+      {/* Chat Stats */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-        <div className="mb-4 flex items-center gap-2"><MessageSquare className="h-5 w-5 text-blue-400" /><h3 className="font-semibold text-slate-100">Ассистент</h3></div>
+        <div className="mb-4 flex items-center gap-2"><MessageSquare className="h-5 w-5 text-blue-400" /><h3 className="font-semibold text-slate-100">Ассистент</h3><span className="text-xs text-slate-500">Цель: 10 лидов/мес</span></div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatBox label="Всего диалогов" value={chatStats.total} />
           <StatBox label="Сегодня" value={chatStats.today} highlight />
-          <StatBox label="Лиды из чата" value={chatStats.chatLeads} />
+          <StatBox label="Лиды из чата" value={chatStats.chatLeads} target={10} />
           <StatBox label="Конверсия" value={`${chatStats.conversionRate}%`} highlight />
         </div>
       </div>
@@ -293,30 +274,19 @@ export function TwinDashboard() {
   )
 }
 
-// --- Sub-components ---
-
-interface MetricItem {
-  icon: any
-  label: string
-  value: number
-  delta: number
-  sub: string
-}
-
-function FactoryCard({ title, flows, onToggleFlow, metrics }: {
-  title: string; flows: Flow[]; onToggleFlow: (f: Flow) => void; metrics: MetricItem[]
+// ═══ FUNNEL CARD ═══
+function FunnelCard({ title, subtitle, stages, flow, onToggleFlow }: {
+  title: string; subtitle: string; stages: FunnelStage[]; flow?: Flow; onToggleFlow: (f: Flow) => void
 }) {
-  const flow = flows[0]
   const isActive = flow?.status === 'active'
   const lastRun = flow?.last_run_at ? new Date(flow.last_run_at).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null
-  const lastResult = flow?.last_run_result as Record<string, any> | null
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-1">
         <h3 className="font-bold text-slate-100">{title}</h3>
         <div className="flex items-center gap-2">
-          {lastRun && <span className="text-[10px] text-slate-600">Посл. запуск: {lastRun}</span>}
+          {lastRun && <span className="text-[10px] text-slate-600">Посл: {lastRun}</span>}
           {flow && (
             <button
               onClick={() => onToggleFlow(flow)}
@@ -328,43 +298,60 @@ function FactoryCard({ title, flows, onToggleFlow, metrics }: {
           )}
         </div>
       </div>
+      <p className="text-[11px] text-slate-500 mb-4">{subtitle}</p>
 
-      <div className="grid grid-cols-2 gap-3">
-        {metrics.map(m => (
-          <MiniStat key={m.label} icon={m.icon} label={m.label} value={m.value} delta={m.delta} sub={m.sub} />
-        ))}
+      {/* Funnel visualization */}
+      <div className="space-y-2">
+        {stages.map((stage, i) => {
+          const pct = stage.target > 0 ? Math.min(stage.count / stage.target, 1) : 0
+          const behind = stage.target > 0 && stage.count < stage.target * 0.5
+          const ahead = stage.target > 0 && stage.count >= stage.target
+
+          return (
+            <div key={stage.label}>
+              {i > 0 && (
+                <div className="flex items-center gap-2 py-1 pl-4">
+                  <ArrowDown className="h-3 w-3 text-slate-600" />
+                  <span className="text-[10px] text-slate-600">конверсия: {stage.conversion}</span>
+                </div>
+              )}
+              <div className="rounded-lg border border-slate-800 bg-slate-800/30 p-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <stage.icon className="h-3.5 w-3.5 text-slate-500" />
+                    <span className="text-xs text-slate-400">{stage.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-lg font-bold ${behind ? 'text-red-400' : ahead ? 'text-emerald-400' : 'text-slate-100'}`}>
+                      {stage.count}
+                    </span>
+                    <span className="text-[10px] text-slate-600">/ {stage.target}</span>
+                    {behind && <TrendingDown className="h-3 w-3 text-red-400" />}
+                    {ahead && <TrendingUp className="h-3 w-3 text-emerald-400" />}
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div className="h-1.5 rounded-full bg-slate-700/50 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${behind ? 'bg-red-500' : ahead ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                    style={{ width: `${pct * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )
+        })}
       </div>
-
-      {lastResult?.summary && (
-        <div className="mt-3 rounded-lg bg-slate-800/30 border border-slate-800 px-3 py-2 text-xs text-slate-400">
-          {lastResult.summary}
-        </div>
-      )}
     </div>
   )
 }
 
-function MiniStat({ icon: Icon, label, value, delta, sub }: { icon: any; label: string; value: number; delta: number; sub?: string }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-800/30 p-3">
-      <div className="mb-1 flex items-center justify-between"><span className="text-xs text-slate-500">{label}</span><Icon className="h-3.5 w-3.5 text-slate-500" /></div>
-      <div className="flex items-baseline gap-2">
-        <p className="text-xl font-bold text-slate-100">{value}</p>
-        {delta > 0 && <span className="text-sm font-medium text-emerald-400">+{delta}</span>}
-      </div>
-      <div className="flex items-center justify-between">
-        {sub && <p className="text-[10px] text-slate-500">{sub}</p>}
-        {delta > 0 && <p className="text-[10px] text-slate-600">за 12ч</p>}
-      </div>
-    </div>
-  )
-}
-
-function StatBox({ label, value, highlight }: { label: string; value: number | string; highlight?: boolean }) {
+function StatBox({ label, value, highlight, target }: { label: string; value: number | string; highlight?: boolean; target?: number }) {
+  const behind = target && typeof value === 'number' && value < target * 0.5
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-800/40 p-3 text-center">
-      <p className={`text-xl font-bold ${highlight ? 'text-blue-400' : 'text-slate-100'}`}>{value}</p>
-      <p className="text-[10px] text-slate-500 mt-0.5">{label}</p>
+      <p className={`text-xl font-bold ${behind ? 'text-red-400' : highlight ? 'text-blue-400' : 'text-slate-100'}`}>{value}</p>
+      <p className="text-[10px] text-slate-500 mt-0.5">{label}{target ? ` (цель: ${target})` : ''}</p>
     </div>
   )
 }
