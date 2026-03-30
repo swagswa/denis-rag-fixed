@@ -213,6 +213,16 @@ ${brief}`;
               updated_at: new Date().toISOString(),
             } as any)
             .eq("id", insight.id);
+
+          await supabase.from("agent_feedback").insert({
+            factory: "consulting",
+            from_agent: "marketer",
+            to_agent: "analyst",
+            feedback_type: "quality_issue",
+            content: `Инсайт "${insight.title}" не удалось приземлить: GPT не смог найти компанию/ЛПР. Нужен более конкретный профиль ЦА с указанием отрасли, размера, конкретных признаков боли.`,
+            insight_id: insight.id,
+          } as any).catch((e: any) => console.error("Feedback insert error:", e));
+
           returned++;
           continue;
         }
@@ -258,14 +268,26 @@ ${brief}`;
 
         leadsCreated++;
       } else {
+        const reason = compactText(item.reason, 300);
         await supabase
           .from("insights")
           .update({
             status: "returned",
-            notes: `Маркетолог: ${compactText(item.reason, 300)}`,
+            notes: `Маркетолог: ${reason}`,
             updated_at: new Date().toISOString(),
           } as any)
           .eq("id", insight.id);
+
+        // ═══ Feedback loop: сообщаем аналитику и скауту ═══
+        await supabase.from("agent_feedback").insert({
+          factory: "consulting",
+          from_agent: "marketer",
+          to_agent: "analyst",
+          feedback_type: "rejection_reason",
+          content: `Отклонил инсайт "${insight.title}": ${reason}. Нужны более конкретные инсайты с привязкой к реальным компаниям РФ/СНГ.`,
+          insight_id: insight.id,
+          signal_id: insight.signal_id || null,
+        } as any).catch((e: any) => console.error("Feedback insert error:", e));
 
         returned++;
       }
