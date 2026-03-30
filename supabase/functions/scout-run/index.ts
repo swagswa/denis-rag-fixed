@@ -38,6 +38,8 @@ function compactText(value: unknown, max = 900) {
 
 async function scrapeUrl(url: string, firecrawlKey: string): Promise<string | null> {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     const response = await fetch("https://api.firecrawl.dev/v1/scrape", {
       method: "POST",
       headers: {
@@ -50,7 +52,9 @@ async function scrapeUrl(url: string, firecrawlKey: string): Promise<string | nu
         onlyMainContent: true,
         waitFor: 3000,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!response.ok) {
       console.error(`Firecrawl error for ${url}: ${response.status}`);
