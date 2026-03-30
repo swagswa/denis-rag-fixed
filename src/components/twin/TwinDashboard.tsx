@@ -278,22 +278,16 @@ export function TwinDashboard() {
           <h3 className="mb-3 font-semibold text-slate-100">🕐 Последние запуски</h3>
           <div className="space-y-2">
             {recentRuns.map(run => {
-              const meta = run.metadata || {}
-              const factory = meta.factory || '—'
-              const steps = meta.steps || []
-              const isOk = run.status === 'ok'
+              const isOk = run.status === 'ok' || run.status === 'success'
+              const when = run.started_at ? new Date(run.started_at).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''
               return (
                 <div key={run.id} className={`rounded-lg border px-4 py-2.5 flex items-center justify-between ${isOk ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
                   <div className="flex items-center gap-3">
                     <span className={`h-2 w-2 rounded-full ${isOk ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                    <span className="text-sm text-slate-200">{run.function_name}</span>
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">{factory}</span>
+                    <span className="text-sm text-slate-200">{run.source || 'chain-runner'}</span>
+                    {run.items_synced > 0 && <span className="text-[10px] text-slate-500">{run.items_synced} элементов</span>}
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
-                    {steps.map((s: any, i: number) => (
-                      <span key={i} className={s.status === 200 ? 'text-emerald-400' : 'text-red-400'}>{s.fn?.replace('-run', '')}</span>
-                    ))}
-                  </div>
+                  <span className="text-xs text-slate-500">{when}</span>
                 </div>
               )
             })}
