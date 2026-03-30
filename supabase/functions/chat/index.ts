@@ -20,6 +20,15 @@ type PageContext = {
 const DEFAULT_SYSTEM_PROMPT = `Ты — AI-ассистент Дениса Матеева.
 Отвечай по-русски, кратко, по делу, без воды.`;
 
+// Lead conversion booster — appended after 3+ user messages if @deyuma hasn't been mentioned yet
+const LEAD_BOOSTER = `
+
+═══ СРОЧНО: ВОВЛЕЧЕНИЕ ═══
+В этом диалоге уже 3+ обмена, но ты ещё НЕ предложил связаться.
+СЕЙЧАС мягко, но конкретно предложи продолжить разговор лично:
+«Слушай, это интересная задача. Давай обсудим лично — напиши мне в Телеграм @deyuma, созвонимся на 15 минут.»
+Не навязывай, но ОБЯЗАТЕЛЬНО дай контакт @deyuma в этом ответе.`;
+
 function detectProductContext(pageContext?: PageContext): "general" | "foundry" | "aisovetnik" | "aitransformation" {
   const joined = `${pageContext?.url || ""} ${pageContext?.title || ""} ${pageContext?.section || ""}`.toLowerCase();
   if (joined.includes("foundry") || joined.includes("agent-fo")) return "foundry";
@@ -36,16 +45,31 @@ function sanitizeMessages(messages: unknown): ChatMessage[] {
     .filter((m) => (m.role === "user" || m.role === "assistant" || m.role === "system") && m.content.trim().length > 0);
 }
 
+function shouldBoostLead(messages: ChatMessage[]): boolean {
+  const userCount = messages.filter(m => m.role === "user").length;
+  if (userCount < 3) return false;
+
+  // Check if @deyuma was already mentioned in any assistant message
+  const alreadyGaveContact = messages.some(
+    m => m.role === "assistant" && m.content.includes("@deyuma")
+  );
+  return !alreadyGaveContact;
+}
+
 async function resolveSystemPrompt({
   supabase,
   pageContext,
   override,
+  messages,
 }: {
   supabase: ReturnType<typeof createClient>;
   pageContext?: PageContext;
   override?: string;
+  messages: ChatMessage[];
 }): Promise<string> {
   if (override?.trim()) return override.trim();
+
+  let basePrompt = DEFAULT_SYSTEM_PROMPT;
 
   try {
     const { data } = await supabase
@@ -58,17 +82,20 @@ async function resolveSystemPrompt({
     const productPrompt = data?.product_prompts?.[productKey];
 
     if (typeof productPrompt === "string" && productPrompt.trim().length > 0) {
-      return productPrompt.trim();
-    }
-
-    if (typeof data?.system_prompt === "string" && data.system_prompt.trim().length > 0) {
-      return data.system_prompt.trim();
+      basePrompt = productPrompt.trim();
+    } else if (typeof data?.system_prompt === "string" && data.system_prompt.trim().length > 0) {
+      basePrompt = data.system_prompt.trim();
     }
   } catch (e) {
     console.warn("Settings prompt fallback:", e);
   }
 
-  return DEFAULT_SYSTEM_PROMPT;
+  // Auto-boost lead generation after 3+ exchanges without @deyuma
+  if (shouldBoostLead(messages)) {
+    basePrompt += LEAD_BOOSTER;
+  }
+
+  return basePrompt;
 }
 
 serve(async (req) => {
@@ -109,6 +136,7 @@ serve(async (req) => {
       supabase,
       pageContext: body?.pageContext,
       override: typeof body?.system_prompt_override === "string" ? body.system_prompt_override : undefined,
+      messages,
     });
 
     const chosenModel = "openai/gpt-5.2";
