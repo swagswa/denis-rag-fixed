@@ -201,14 +201,16 @@ ${brief}`;
             } as any)
             .eq("id", insight.id);
 
-          await supabase.from("agent_feedback").insert({
-            factory: "foundry",
-            from_agent: "builder",
-            to_agent: "analyst",
-            feedback_type: "quality_issue",
-            content: `Идея "${item.idea}" — нет доказательств спроса в РФ. Аналитик должен приводить конкретные данные: Вордстат цифры, обсуждения в TG, посты на vc.ru.`,
-            insight_id: insight.id,
-          } as any).catch((e: any) => console.error("Feedback insert error:", e));
+          try {
+            await supabase.from("agent_feedback").insert({
+              factory: "foundry",
+              from_agent: "builder",
+              to_agent: "analyst",
+              feedback_type: "quality_issue",
+              content: `Идея "${item.idea}" — нет доказательств спроса в РФ. Аналитик должен приводить конкретные данные: Вордстат цифры, обсуждения в TG, посты на vc.ru.`,
+              insight_id: insight.id,
+            } as any);
+          } catch (e: any) { console.error("Feedback insert error:", e); }
 
           returned++;
           continue;
