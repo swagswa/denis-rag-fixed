@@ -71,6 +71,29 @@ serve(async (req) => {
       }
     }
 
+    // ═══ PHASE 0.5: Load feedback from downstream agents ═══
+    const { data: recentFeedback } = await supabase
+      .from("agent_feedback")
+      .select("factory, feedback_type, content")
+      .eq("to_agent", "analyst")
+      .eq("resolved", false)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    const feedbackContext = (recentFeedback || [])
+      .map((f: any) => `[${f.factory}/${f.feedback_type}]: ${f.content}`)
+      .join("\n");
+
+    // Load KPI targets
+    const { data: kpiGoals } = await supabase
+      .from("agent_kpi")
+      .select("factory, metric, target, current")
+      .eq("active", true);
+
+    const kpiContext = (kpiGoals || [])
+      .map((k: any) => `[${k.factory}] ${k.metric}: ${k.current}/${k.target}`)
+      .join("\n");
+
     // ═══ PHASE 1: Process NEW signals (including recycled ones) ═══
     const { data: signals, error: signalsError } = await supabase
       .from("signals")
