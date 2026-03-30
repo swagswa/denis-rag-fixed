@@ -343,6 +343,38 @@ ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI:\n${kpiContext}\n` : ""}
     if (toInsert.length > 0) {
       const { error: insertError } = await supabase.from("signals").insert(toInsert);
       if (insertError) throw insertError;
+
+      // ═══ PHASE 3.5: Сохраняем сигналы в базу знаний (documents) ═══
+      const kbDocs = toInsert.map((sig: any) => {
+        const content = [
+          `# [Signal] ${sig.company_name || sig.signal_type}`,
+          `Тип сигнала: ${sig.signal_type}`,
+          `Потенциал: ${sig.potential}`,
+          sig.industry ? `Индустрия: ${sig.industry}` : null,
+          sig.company_name ? `Компания: ${sig.company_name}` : null,
+          `Источник: ${sig.source || "н/д"}`,
+          `\n## Описание\n${sig.description}`,
+          sig.notes ? `\n## Заметки\n${sig.notes}` : null,
+        ].filter(Boolean).join("\n");
+
+        return {
+          title: `[Signal] ${sig.company_name || sig.signal_type}: ${sig.description.slice(0, 80)}`,
+          content,
+          source_type: "agent",
+          source_name: "scout-run",
+          topic: sig.potential,
+          metadata_json: {
+            signal_type: sig.signal_type,
+            potential: sig.potential,
+            industry: sig.industry,
+            company_name: sig.company_name,
+            auto_saved: true,
+          },
+        };
+      });
+
+      const { error: kbError } = await supabase.from("documents").insert(kbDocs);
+      if (kbError) console.error("KB save error (non-fatal):", kbError);
     }
 
     // ═══ PHASE 4: Логируем запуск ═══
