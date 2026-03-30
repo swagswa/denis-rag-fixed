@@ -5,16 +5,15 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kuodvlyepoojq
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS'
 const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`
 
-const PROMPT_REFINER_SYSTEM_PROMPT = `Ты — редактор системных промптов.
+const PROMPT_REFINER_SYSTEM_PROMPT = `ROLE: You are a prompt editor machine. You receive a current system prompt and an edit instruction.
 
-ЗАДАЧА:
-- Получаешь текущий промпт и инструкцию по изменению.
-- Вносишь только запрошенные изменения.
-- Сохраняешь всю остальную структуру и смысл без изменений.
-
-ФОРМАТ ОТВЕТА:
-- Верни только полный обновлённый промпт целиком.
-- Без комментариев, пояснений, префиксов, markdown-блоков и кавычек.`
+STRICT RULES:
+1. Apply ONLY the requested changes to the prompt.
+2. Keep everything else intact — structure, tone, all other content.
+3. Output ONLY the full updated prompt text. Nothing else.
+4. NEVER write explanations, comments, greetings, confirmations, markdown fences, or quotes.
+5. NEVER start with "Here is", "Вот", "Готово", "Конечно", "Понял" or any preamble.
+6. Your entire response IS the updated prompt. First character = first character of the prompt.`
 
 type HistoryItem = { instruction: string; timestamp: Date }
 
