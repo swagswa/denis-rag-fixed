@@ -200,31 +200,12 @@ serve(async (req) => {
       // ═══ SAVE FUNNEL SNAPSHOT ═══
       try {
         await supabase.from("sync_runs").insert({
-          function_name: "chain-runner",
+          source: `chain-runner:${factory}`,
           status: "ok",
-          items_found: results.length,
-          metadata: {
-            factory,
-            triggered_by,
-            funnel: {
-              signals: actual.signals,
-              insights: fInsights.length,
-              qualified: fQualified.length,
-              returned: actual.returned,
-              output: actual.output,
-              conversion_signal_insight: signalToInsight,
-              conversion_insight_output: insightToOutput,
-              return_rate: returnRate,
-            },
-            kpi_progress: {
-              signals: `${actual.signals}/${expected.signals}`,
-              output: `${actual.output}/${expected.output}`,
-              day: dayOfMonth,
-              days_total: daysInMonth,
-            },
-            feedbacks_generated: feedbackMessages.length,
-            steps: results.map(r => ({ fn: r.fn, status: r.status })),
-          },
+          items_synced: results.filter(r => r.status === 200).length,
+          items_skipped: results.filter(r => r.status !== 200).length,
+          started_at: new Date().toISOString(),
+          finished_at: new Date().toISOString(),
         } as any);
       } catch (e) {
         console.error("sync_runs log error:", e);
