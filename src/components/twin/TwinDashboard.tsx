@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { runAgentChain } from '@/lib/api'
+
 import { classifyAssistantSite } from '@/lib/assistant-site'
-import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench, PlayCircle, PauseCircle, Loader2 } from 'lucide-react'
+import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Flow {
@@ -55,9 +55,6 @@ export function TwinDashboard() {
   const [chatStats, setChatStats] = useState<ChatStats>({ total: 0, today: 0, chatLeads: 0, conversionRate: '0' })
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [runningFlow, setRunningFlow] = useState<string | null>(null)
-  const [runStep, setRunStep] = useState<string>('')
-  const [runResult, setRunResult] = useState<Record<string, string>>({})
 
 
   const loadData = async () => {
@@ -136,15 +133,6 @@ export function TwinDashboard() {
       const loadedFlows = ((flowsRes.data || []) as any) as Flow[]
       setFlows(loadedFlows)
 
-      // Restore last run results from DB
-      const savedResults: Record<string, string> = {}
-      loadedFlows.forEach(f => {
-        if (f.last_run_result && typeof f.last_run_result === 'object') {
-          const r = f.last_run_result as Record<string, any>
-          if (r.summary) savedResults[f.factory] = r.summary
-        }
-      })
-      if (Object.keys(savedResults).length > 0) setRunResult(prev => ({ ...savedResults, ...prev }))
 
       // Pending items
       const pendingItems: PendingItem[] = []
@@ -198,54 +186,6 @@ export function TwinDashboard() {
     loadData()
   }
 
-  const runNow = async (factory: 'consulting' | 'foundry') => {
-    setRunningFlow(factory)
-    setRunStep('Скаут ищет...')
-    setRunResult(prev => ({ ...prev, [factory]: '' }))
-
-    const stepLabels: Record<string, string> = {
-      'scout-run': 'Скаут',
-      'analyst-run': 'Аналитик',
-      'marketer-run': 'Маркетолог',
-      'builder-run': 'Создатель',
-    }
-    const summaryParts: string[] = []
-
-    const results = await runAgentChain(factory, (step, result) => {
-      const label = stepLabels[step] || step
-      if (!result.data) {
-        setRunStep(`${label} работает...`)
-      } else {
-        const d = result.data
-        const detail = d.inserted != null ? `+${d.inserted}` :
-          d.insights_created != null ? `+${d.insights_created} инсайтов` :
-          d.leads_created != null ? `+${d.leads_created} лидов` :
-          d.opportunities_created != null ? `+${d.opportunities_created} проектов` : 'готово'
-        summaryParts.push(`${label}: ${detail}`)
-        setRunStep(`${label}: ${detail}`)
-      }
-    })
-
-    const failed = results.find(r => !r.success)
-    const summary = failed
-      ? `❌ Ошибка: ${failed.error || failed.fn}`
-      : summaryParts.join(' → ') || '✅ Готово'
-
-    setRunResult(prev => ({ ...prev, [factory]: summary }))
-
-    // Save result to DB so it persists after reload
-    const flow = flows.find(f => f.factory === factory)
-    if (flow) {
-      await (supabase as any).from('factory_flows').update({
-        last_run_at: new Date().toISOString(),
-        last_run_result: { summary, timestamp: new Date().toISOString() },
-      }).eq('id', flow.id)
-    }
-
-    setRunningFlow(null)
-    setRunStep('')
-    loadData()
-  }
 
   const approveLead = async (id: string) => {
     const { error } = await supabase.from('leads').update({ status: 'approved' }).eq('id', id)
@@ -285,12 +225,7 @@ export function TwinDashboard() {
       <div className="grid gap-6 lg:grid-cols-2">
         <FactoryCard
           title="🤝 Consulting Factory"
-          factory="consulting"
           flows={flows.filter(f => f.factory === 'consulting')}
-          runningFlow={runningFlow}
-          runStep={runStep}
-          runResult={runResult['consulting'] || ''}
-          onRunNow={runNow}
           onToggleFlow={toggleFlow}
           metrics={[
             { icon: Search, label: 'Сигналы', value: consulting.signals, delta: consulting.signals12h, sub: 'найдено скаутом' },
@@ -301,12 +236,7 @@ export function TwinDashboard() {
         />
         <FactoryCard
           title="🚀 Foundry Factory"
-          factory="foundry"
           flows={flows.filter(f => f.factory === 'foundry')}
-          runningFlow={runningFlow}
-          runStep={runStep}
-          runResult={runResult['foundry'] || ''}
-          onRunNow={runNow}
           onToggleFlow={toggleFlow}
           metrics={[
             { icon: Search, label: 'Сигналы', value: foundry.signals, delta: foundry.signals12h, sub: 'найдено скаутом' },
@@ -373,63 +303,41 @@ interface MetricItem {
   sub: string
 }
 
-function FactoryCard({ title, factory, flows, runningFlow, runStep, runResult, onRunNow, onToggleFlow, metrics }: {
-  title: string; factory: string; flows: Flow[]; runningFlow: string | null; runStep: string; runResult: string;
-  onRunNow: (f: 'consulting' | 'foundry') => void; onToggleFlow: (f: Flow) => void; metrics: MetricItem[]
+function FactoryCard({ title, flows, onToggleFlow, metrics }: {
+  title: string; flows: Flow[]; onToggleFlow: (f: Flow) => void; metrics: MetricItem[]
 }) {
   const flow = flows[0]
   const isActive = flow?.status === 'active'
-  const isRunning = runningFlow === factory
-  const lastRun = flow?.last_run_at ? new Date(flow.last_run_at).toLocaleString('ru', { hour: '2-digit', minute: '2-digit' }) : null
+  const lastRun = flow?.last_run_at ? new Date(flow.last_run_at).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null
+  const lastResult = flow?.last_run_result as Record<string, any> | null
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-      {/* Header with status */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-bold text-slate-100">{title}</h3>
-        {flow && (
-          <button
-            onClick={() => onToggleFlow(flow)}
-            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${isActive ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'bg-red-500/10 text-red-400 hover:bg-red-500/20'}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-emerald-400' : 'bg-red-400'}`} />
-            {isActive ? 'Работает' : 'Остановлен'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {lastRun && <span className="text-[10px] text-slate-600">Посл. запуск: {lastRun}</span>}
+          {flow && (
+            <button
+              onClick={() => onToggleFlow(flow)}
+              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors ${isActive ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'bg-red-500/10 text-red-400 hover:bg-red-500/20'}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isActive ? 'bg-emerald-400' : 'bg-red-400'}`} />
+              {isActive ? 'Авто' : 'Пауза'}
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Metrics */}
       <div className="grid grid-cols-2 gap-3">
         {metrics.map(m => (
           <MiniStat key={m.label} icon={m.icon} label={m.label} value={m.value} delta={m.delta} sub={m.sub} />
         ))}
       </div>
 
-      {/* Run controls + progress + result */}
-      {flow && (
-        <div className="mt-4 pt-3 border-t border-slate-800 space-y-2">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => onRunNow(factory as 'consulting' | 'foundry')}
-              disabled={isRunning}
-              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-            >
-              {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <PlayCircle className="h-3 w-3" />}
-              {isRunning ? 'Работает...' : 'Запустить цепочку'}
-            </button>
-            {lastRun && <span className="text-[10px] text-slate-600">Последний: {lastRun}</span>}
-          </div>
-          {isRunning && runStep && (
-            <div className="flex items-center gap-2 rounded-lg bg-blue-500/5 border border-blue-500/10 px-3 py-2">
-              <Loader2 className="h-3 w-3 animate-spin text-blue-400 shrink-0" />
-              <span className="text-xs text-blue-300">{runStep}</span>
-            </div>
-          )}
-          {!isRunning && runResult && (
-            <div className={`rounded-lg px-3 py-2 text-xs ${runResult.startsWith('❌') ? 'bg-red-500/5 border border-red-500/10 text-red-300' : 'bg-emerald-500/5 border border-emerald-500/10 text-emerald-300'}`}>
-              {runResult}
-            </div>
-          )}
+      {lastResult?.summary && (
+        <div className="mt-3 rounded-lg bg-slate-800/30 border border-slate-800 px-3 py-2 text-xs text-slate-400">
+          {lastResult.summary}
         </div>
       )}
     </div>
