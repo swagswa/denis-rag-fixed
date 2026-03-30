@@ -65,7 +65,7 @@ export function TwinDashboard() {
         supabase.from('factory_flows').select('id, factory, name, status, last_run_at, last_run_result') as any,
         supabase.from('conversations').select('id, page, session_id, created_at'),
         supabase.from('leads').select('id, session_id').not('session_id', 'is', null),
-        supabase.from('agent_feedback').select('factory, content, feedback_type').eq('from_agent', 'chain-runner').eq('resolved', false),
+        supabase.from('agent_feedback' as any).select('factory, content, feedback_type').eq('from_agent', 'chain-runner').eq('resolved', false),
       ])
 
       const signals = signalsRes.data || []
