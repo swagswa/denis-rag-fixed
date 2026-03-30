@@ -62,7 +62,7 @@ export function TwinDashboard() {
         supabase.from('insights').select('id, status, opportunity_type').gte('created_at', monthISO),
         supabase.from('leads').select('id, status, company_name, name, message, lead_summary, role, created_at, session_id, topic_guess'),
         supabase.from('startup_opportunities').select('id, stage, idea, problem, solution, market, monetization, notes, created_at, revenue_estimate, source'),
-        supabase.from('factory_flows').select('id, factory, name, status, last_run_at, last_run_result'),
+        supabase.from('factory_flows').select('id, factory, name, status, last_run_at, last_run_result') as any,
         supabase.from('conversations').select('id, page, session_id, created_at'),
         supabase.from('leads').select('id, session_id').not('session_id', 'is', null),
         supabase.from('agent_feedback').select('factory, content, feedback_type').eq('from_agent', 'chain-runner').eq('resolved', false),
