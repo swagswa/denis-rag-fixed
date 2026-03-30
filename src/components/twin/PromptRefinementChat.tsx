@@ -6,15 +6,29 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kuodvlyepoojq
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`
 
-const PROMPT_REFINER_SYSTEM_PROMPT = `ROLE: You are a prompt editor machine. You receive a current system prompt and an edit instruction.
+const PROMPT_REFINER_SYSTEM_PROMPT = `You are a PROMPT EDITING MACHINE. Not a chatbot. Not an assistant.
 
-STRICT RULES:
-1. Apply ONLY the requested changes to the prompt.
-2. Keep everything else intact — structure, tone, all other content.
-3. Output ONLY the full updated prompt text. Nothing else.
-4. NEVER write explanations, comments, greetings, confirmations, markdown fences, or quotes.
-5. NEVER start with "Here is", "Вот", "Готово", "Конечно", "Понял" or any preamble.
-6. Your entire response IS the updated prompt. First character = first character of the prompt.`
+INPUT: You receive TWO things:
+1. A "ТЕКУЩИЙ ПРОМПТ" (current prompt text)
+2. An "ИНСТРУКЦИЯ" (edit instruction)
+
+YOUR ONLY JOB: Apply the edit instruction to the current prompt and return the COMPLETE UPDATED PROMPT.
+
+ABSOLUTE RULES — VIOLATION = FAILURE:
+- Your ENTIRE output must be the full updated prompt text. Every single line of it.
+- NEVER omit parts of the original prompt. Return it ALL with only the requested changes applied.
+- NEVER add commentary, explanations, or confirmations.
+- NEVER start with "Вот", "Готово", "Here is", "Добавил", "Обновил", "Я добавил" or ANY preamble.
+- NEVER use markdown code fences (\`\`\`).
+- The FIRST character of your output = the first character of the updated prompt.
+- The LAST character of your output = the last character of the updated prompt.
+- If the original prompt is 50 lines, your output must also be ~50 lines (plus/minus changes).
+
+EXAMPLE:
+Input prompt: "Ты помощник. Отвечай кратко."
+Instruction: "Добавь что отвечаешь на русском"
+Correct output: "Ты помощник. Отвечай кратко, на русском языке."
+WRONG output: "Добавил. Вот обновлённый промпт: ..." ← THIS IS A FAILURE`
 
 type HistoryItem = { instruction: string; timestamp: Date }
 
@@ -192,16 +206,19 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
 
       if (result.trim()) {
         let cleaned = result.trim()
+        // Strip common AI preambles
+        cleaned = cleaned.replace(/^(Вот|Готово|Добавил[аи]?|Обновил[аи]?|Я добавил[аи]?|Here is)[^\n]*\n+/i, '').trim()
         cleaned = cleaned.replace(/^Вот\s+обновл[её]нный\s+промпт:?\s*/i, '').trim()
         cleaned = cleaned.replace(/^Here is(?: the)? updated prompt:?\s*/i, '').trim()
         if (cleaned.startsWith('```')) {
           cleaned = cleaned.replace(/^```[^\n]*\n/, '').replace(/\n```\s*$/, '')
         }
 
-        const tooShort = cleaned.length < Math.max(200, Math.floor(currentPrompt.length * 0.35))
-        const looksLikeDialog = /^(понял|конечно|хорошо|сделаю|готово|ок)\b/i.test(cleaned)
+        // Validation: must be substantial (at least 50% of original or 200 chars)
+        const tooShort = cleaned.length < Math.max(200, Math.floor(currentPrompt.length * 0.5))
+        const looksLikeDialog = /^(понял|конечно|хорошо|сделаю|готово|ок|добавил|обновил|я добавил)\b/i.test(cleaned)
         if (tooShort || looksLikeDialog) {
-          throw new Error('ИИ вернул не полный обновлённый промпт. Сформулируй задачу короче и повтори.')
+          throw new Error('ИИ вернул не полный промпт. Попробуй сформулировать задачу иначе.')
         }
 
         await Promise.resolve(onApplyPrompt(cleaned))

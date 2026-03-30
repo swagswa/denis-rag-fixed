@@ -178,11 +178,13 @@ export default function ChatEmbed() {
         onDelta: upsertAssistant,
         onDone: () => {
           setIsLoading(false)
+          const isLead = assistantSoFar.includes('@deyuma')
           supabase.from('conversations').insert({
             user_message: text,
             ai_message: assistantSoFar,
             session_id: sessionId.current,
             page: pageCtx.url,
+            ...(isLead ? { is_lead: true } : {}),
           }).then()
         },
       })
