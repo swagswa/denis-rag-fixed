@@ -423,6 +423,7 @@ export type Database = {
           first_message: string | null
           id: string
           openai_model: string | null
+          product_prompts: Record<string, string> | null
           system_prompt: string | null
           telegram_bot_token: string | null
           telegram_chat_id: string | null
@@ -436,6 +437,7 @@ export type Database = {
           first_message?: string | null
           id?: string
           openai_model?: string | null
+          product_prompts?: Record<string, string> | null
           system_prompt?: string | null
           telegram_bot_token?: string | null
           telegram_chat_id?: string | null
@@ -449,6 +451,7 @@ export type Database = {
           first_message?: string | null
           id?: string
           openai_model?: string | null
+          product_prompts?: Record<string, string> | null
           system_prompt?: string | null
           telegram_bot_token?: string | null
           telegram_chat_id?: string | null
