@@ -36,6 +36,14 @@ interface ChatStats {
   conversionRate: string
 }
 
+interface RecentRun {
+  id: string
+  function_name: string
+  status: string
+  items_found: number
+  metadata: any
+}
+
 export function TwinDashboard() {
   const [consultingFunnel, setConsultingFunnel] = useState<FunnelStage[]>([])
   const [foundryFunnel, setFoundryFunnel] = useState<FunnelStage[]>([])
@@ -45,6 +53,7 @@ export function TwinDashboard() {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [bottlenecks, setBottlenecks] = useState<{ factory: string; message: string }[]>([])
+  const [recentRuns, setRecentRuns] = useState<RecentRun[]>([])
 
   const loadData = async () => {
     const monthStart = new Date()
