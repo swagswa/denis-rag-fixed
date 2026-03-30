@@ -225,12 +225,7 @@ export function TwinDashboard() {
       <div className="grid gap-6 lg:grid-cols-2">
         <FactoryCard
           title="🤝 Consulting Factory"
-          factory="consulting"
           flows={flows.filter(f => f.factory === 'consulting')}
-          runningFlow={runningFlow}
-          runStep={runStep}
-          runResult={runResult['consulting'] || ''}
-          onRunNow={runNow}
           onToggleFlow={toggleFlow}
           metrics={[
             { icon: Search, label: 'Сигналы', value: consulting.signals, delta: consulting.signals12h, sub: 'найдено скаутом' },
@@ -241,12 +236,7 @@ export function TwinDashboard() {
         />
         <FactoryCard
           title="🚀 Foundry Factory"
-          factory="foundry"
           flows={flows.filter(f => f.factory === 'foundry')}
-          runningFlow={runningFlow}
-          runStep={runStep}
-          runResult={runResult['foundry'] || ''}
-          onRunNow={runNow}
           onToggleFlow={toggleFlow}
           metrics={[
             { icon: Search, label: 'Сигналы', value: foundry.signals, delta: foundry.signals12h, sub: 'найдено скаутом' },
