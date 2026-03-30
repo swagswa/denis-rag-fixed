@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
 import { classifyAssistantSite } from '@/lib/assistant-site'
-import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench, PlayCircle, PauseCircle, Loader2 } from 'lucide-react'
+import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Flow {
