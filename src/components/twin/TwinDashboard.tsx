@@ -133,15 +133,6 @@ export function TwinDashboard() {
       const loadedFlows = ((flowsRes.data || []) as any) as Flow[]
       setFlows(loadedFlows)
 
-      // Restore last run results from DB
-      const savedResults: Record<string, string> = {}
-      loadedFlows.forEach(f => {
-        if (f.last_run_result && typeof f.last_run_result === 'object') {
-          const r = f.last_run_result as Record<string, any>
-          if (r.summary) savedResults[f.factory] = r.summary
-        }
-      })
-      if (Object.keys(savedResults).length > 0) setRunResult(prev => ({ ...savedResults, ...prev }))
 
       // Pending items
       const pendingItems: PendingItem[] = []
