@@ -72,7 +72,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
     setStatus('Дорабатываю промпт...')
 
     try {
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/chat`, {
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/prompt-refine`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -80,25 +80,8 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
           apikey: SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({
-          messages: [{ role: 'user', content: instruction }],
-          sessionId: `refine-${Date.now()}`,
-          pageContext: { url: 'prompt-refinement', title: 'Refine', section: 'admin' },
-          system_prompt_override: `Ты — редактор системных промтов. Тебе дан текущий промт и инструкция по его изменению.
-
-ТЕКУЩИЙ ПРОМТ:
----
-${currentPrompt}
----
-
-ИНСТРУКЦИЯ ПОЛЬЗОВАТЕЛЯ: "${instruction}"
-
-ПРАВИЛА:
-1. Внеси ТОЛЬКО те изменения, которые просит пользователь
-2. Сохрани всю остальную структуру, форматирование и содержание промта
-3. Верни ПОЛНЫЙ обновлённый промт целиком — без комментариев, без объяснений, без маркдаун-обёрток
-4. НЕ добавляй ничего от себя кроме запрошенных изменений
-5. Ответ должен быть ТОЛЬКО текстом промта, ничего больше`,
-          isTest: true,
+          instruction,
+          currentPrompt,
         }),
       })
 
