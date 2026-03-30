@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import { Save, Eye } from 'lucide-react'
+import { Save, Eye, Upload } from 'lucide-react'
 import { PromptRefinementChat } from './PromptRefinementChat'
 import { TestChat } from './TestChat'
+import { PREPARED_GENERAL_PROMPT, PREPARED_PRODUCT_PROMPTS } from '@/lib/prepared-prompts'
 
 type ProductContext = 'general' | 'foundry' | 'aisovetnik' | 'aitransformation'
 
