@@ -172,7 +172,7 @@ ${brief}`;
       } else {
         const reason = compact(item.reason, 300);
         await supabase.from("insights").update({ status: "returned", notes: `Маркетолог: ${reason}`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);
-        await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "rejection_reason", content: `"${insight.title}": ${reason}`, signal_id: insight.signal_id || null } as any).catch(() => {});
+        try { await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "rejection_reason", content: `"${insight.title}": ${reason}`, signal_id: insight.signal_id || null } as any); } catch {}
         returned++;
       }
     }
