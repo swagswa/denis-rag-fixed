@@ -36,6 +36,14 @@ interface ChatStats {
   conversionRate: string
 }
 
+interface RecentRun {
+  id: string
+  function_name: string
+  status: string
+  items_found: number
+  metadata: any
+}
+
 export function TwinDashboard() {
   const [consultingFunnel, setConsultingFunnel] = useState<FunnelStage[]>([])
   const [foundryFunnel, setFoundryFunnel] = useState<FunnelStage[]>([])
@@ -45,6 +53,7 @@ export function TwinDashboard() {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [bottlenecks, setBottlenecks] = useState<{ factory: string; message: string }[]>([])
+  const [recentRuns, setRecentRuns] = useState<RecentRun[]>([])
 
   const loadData = async () => {
     const monthStart = new Date()
@@ -57,7 +66,7 @@ export function TwinDashboard() {
     const progress = dayOfMonth / daysInMonth
 
     try {
-      const [signalsRes, insightsRes, leadsRes, oppsRes, flowsRes, chatsRes, chatLeadsRes, feedbackRes] = await Promise.all([
+      const [signalsRes, insightsRes, leadsRes, oppsRes, flowsRes, chatsRes, chatLeadsRes, feedbackRes, runsRes] = await Promise.all([
         supabase.from('signals').select('id, status, potential').gte('created_at', monthISO),
         supabase.from('insights').select('id, status, opportunity_type').gte('created_at', monthISO),
         supabase.from('leads').select('id, status, company_name, name, message, lead_summary, role, created_at, session_id, topic_guess'),
@@ -66,6 +75,7 @@ export function TwinDashboard() {
         supabase.from('conversations').select('id, page, session_id, created_at'),
         supabase.from('leads').select('id, session_id').not('session_id', 'is', null),
         supabase.from('agent_feedback' as any).select('factory, content, feedback_type').eq('from_agent', 'chain-runner').eq('resolved', false),
+        supabase.from('sync_runs' as any).select('id, function_name, status, items_found, metadata').order('id', { ascending: false }).limit(10),
       ])
 
       const signals = signalsRes.data || []
@@ -73,6 +83,7 @@ export function TwinDashboard() {
       const leadsData = leadsRes.data || []
       const opps = oppsRes.data || []
       const feedback = feedbackRes.data || []
+      setRecentRuns((runsRes.data || []) as unknown as RecentRun[])
 
       // ═══ CONSULTING FUNNEL ═══
       const cSignals = signals.filter((s: any) => s.potential === 'consulting' || !s.potential)
@@ -257,6 +268,35 @@ export function TwinDashboard() {
       ) : (
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-center">
           <p className="text-sm text-slate-500">Агенты работают... Пока вопросов нет ✨</p>
+        </div>
+      )}
+
+      {/* Recent Runs — зелёная подсветка за последние 12 часов */}
+      {recentRuns.length > 0 && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+          <h3 className="mb-3 font-semibold text-slate-100">🕐 Последние запуски</h3>
+          <div className="space-y-2">
+            {recentRuns.map(run => {
+              const meta = run.metadata || {}
+              const factory = meta.factory || '—'
+              const steps = meta.steps || []
+              const isOk = run.status === 'ok'
+              return (
+                <div key={run.id} className={`rounded-lg border px-4 py-2.5 flex items-center justify-between ${isOk ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`h-2 w-2 rounded-full ${isOk ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                    <span className="text-sm text-slate-200">{run.function_name}</span>
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">{factory}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-slate-500">
+                    {steps.map((s: any, i: number) => (
+                      <span key={i} className={s.status === 200 ? 'text-emerald-400' : 'text-red-400'}>{s.fn?.replace('-run', '')}</span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
