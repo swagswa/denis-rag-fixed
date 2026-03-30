@@ -186,54 +186,6 @@ export function TwinDashboard() {
     loadData()
   }
 
-  const runNow = async (factory: 'consulting' | 'foundry') => {
-    setRunningFlow(factory)
-    setRunStep('Скаут ищет...')
-    setRunResult(prev => ({ ...prev, [factory]: '' }))
-
-    const stepLabels: Record<string, string> = {
-      'scout-run': 'Скаут',
-      'analyst-run': 'Аналитик',
-      'marketer-run': 'Маркетолог',
-      'builder-run': 'Создатель',
-    }
-    const summaryParts: string[] = []
-
-    const results = await runAgentChain(factory, (step, result) => {
-      const label = stepLabels[step] || step
-      if (!result.data) {
-        setRunStep(`${label} работает...`)
-      } else {
-        const d = result.data
-        const detail = d.inserted != null ? `+${d.inserted}` :
-          d.insights_created != null ? `+${d.insights_created} инсайтов` :
-          d.leads_created != null ? `+${d.leads_created} лидов` :
-          d.opportunities_created != null ? `+${d.opportunities_created} проектов` : 'готово'
-        summaryParts.push(`${label}: ${detail}`)
-        setRunStep(`${label}: ${detail}`)
-      }
-    })
-
-    const failed = results.find(r => !r.success)
-    const summary = failed
-      ? `❌ Ошибка: ${failed.error || failed.fn}`
-      : summaryParts.join(' → ') || '✅ Готово'
-
-    setRunResult(prev => ({ ...prev, [factory]: summary }))
-
-    // Save result to DB so it persists after reload
-    const flow = flows.find(f => f.factory === factory)
-    if (flow) {
-      await (supabase as any).from('factory_flows').update({
-        last_run_at: new Date().toISOString(),
-        last_run_result: { summary, timestamp: new Date().toISOString() },
-      }).eq('id', flow.id)
-    }
-
-    setRunningFlow(null)
-    setRunStep('')
-    loadData()
-  }
 
   const approveLead = async (id: string) => {
     const { error } = await supabase.from('leads').update({ status: 'approved' }).eq('id', id)
