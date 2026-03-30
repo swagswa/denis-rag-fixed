@@ -213,6 +213,16 @@ ${brief}`;
               updated_at: new Date().toISOString(),
             } as any)
             .eq("id", insight.id);
+
+          await supabase.from("agent_feedback").insert({
+            factory: "consulting",
+            from_agent: "marketer",
+            to_agent: "analyst",
+            feedback_type: "quality_issue",
+            content: `Инсайт "${insight.title}" не удалось приземлить: GPT не смог найти компанию/ЛПР. Нужен более конкретный профиль ЦА с указанием отрасли, размера, конкретных признаков боли.`,
+            insight_id: insight.id,
+          } as any).catch((e: any) => console.error("Feedback insert error:", e));
+
           returned++;
           continue;
         }
