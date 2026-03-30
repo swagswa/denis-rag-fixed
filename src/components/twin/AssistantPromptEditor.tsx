@@ -34,16 +34,22 @@ export function AssistantPromptEditor() {
   // Load settings
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('settings')
         .select('id, system_prompt, product_prompts')
         .limit(1)
         .single() as any
+      if (error) {
+        console.error('Settings load error:', error)
+      }
       if (data) {
+        console.log('Settings loaded, system_prompt length:', data.system_prompt?.length, 'product_prompts keys:', Object.keys(data.product_prompts || {}))
         setSettingsId(data.id)
         setSystemPrompt(data.system_prompt || '')
         const pp = data.product_prompts || {}
         setProductPrompts(pp)
+      } else {
+        console.warn('No settings data returned')
       }
       setLoading(false)
     }
@@ -71,7 +77,7 @@ export function AssistantPromptEditor() {
       } else {
         const updated = { ...productPrompts, [selectedProduct]: promptText }
         if (!promptText.trim()) delete updated[selectedProduct]
-        const { error } = await (supabase as any).from('settings').update({ product_prompts: updated }).eq('id', settingsId)
+        const { error } = await supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId)
         if (error) throw error
         setProductPrompts(updated)
       }
@@ -158,7 +164,7 @@ export function AssistantPromptEditor() {
                   const updated = { ...productPrompts }
                   delete updated[selectedProduct]
                   setProductPrompts(updated)
-                  ;(supabase as any).from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
+                  ;supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
                 }}
                 className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
               >
