@@ -244,8 +244,10 @@ serve(async (req) => {
 - source_index = номер сигнала из входных данных (начиная с 1)
 - Если сигнал нерелевантен — просто НЕ включай его в ответ
 
+${feedbackContext ? `\n═══ ОБРАТНАЯ СВЯЗЬ ОТ МАРКЕТОЛОГА/БИЛДЕРА (учти при анализе!):\n${feedbackContext}\nАдаптируй свои инсайты с учётом этой обратной связи!\n` : ""}
+${kpiContext ? `\n═══ ТЕКУЩИЕ KPI (если отстаём — будь менее строгим фильтром):\n${kpiContext}\n` : ""}
 СИГНАЛЫ:
-${brief}`;
+\${brief}\`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
