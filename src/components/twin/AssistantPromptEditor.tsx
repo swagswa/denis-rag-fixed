@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
-import { Save, Eye } from 'lucide-react'
+import { Save, Eye, Upload } from 'lucide-react'
 import { PromptRefinementChat } from './PromptRefinementChat'
 import { TestChat } from './TestChat'
+import { PREPARED_GENERAL_PROMPT, PREPARED_PRODUCT_PROMPTS } from '@/lib/prepared-prompts'
 
 type ProductContext = 'general' | 'foundry' | 'aisovetnik' | 'aitransformation'
 
@@ -94,6 +95,43 @@ export function AssistantPromptEditor() {
     toast.success('Промпт обновлён из доработки. Нажмите «Сохранить» для применения.')
   }
 
+  const handleLoadPrepared = async () => {
+    if (!settingsId) return
+    setSaving(true)
+    try {
+      // Try with product_prompts first
+      let { error } = await supabase.from('settings').update({
+        system_prompt: PREPARED_GENERAL_PROMPT,
+        product_prompts: PREPARED_PRODUCT_PROMPTS as any,
+      }).eq('id', settingsId)
+      
+      // If product_prompts column doesn't exist, save only system_prompt
+      if (error && error.message?.includes('product_prompts')) {
+        const res = await supabase.from('settings').update({
+          system_prompt: PREPARED_GENERAL_PROMPT,
+        }).eq('id', settingsId)
+        if (res.error) throw res.error
+        toast.success('Основной промпт загружен! (Для product_prompts нужно добавить столбец в БД)')
+      } else if (error) {
+        throw error
+      } else {
+        toast.success('Все промты загружены и сохранены!')
+      }
+      
+      setSystemPrompt(PREPARED_GENERAL_PROMPT)
+      setProductPrompts(PREPARED_PRODUCT_PROMPTS)
+      if (selectedProduct === 'general') {
+        setPromptText(PREPARED_GENERAL_PROMPT)
+      } else {
+        setPromptText(PREPARED_PRODUCT_PROMPTS[selectedProduct] || '')
+      }
+    } catch (e: any) {
+      toast.error('Ошибка: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -104,9 +142,21 @@ export function AssistantPromptEditor() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)]">
-      <div className="mb-3">
-        <h2 className="text-xl font-bold text-slate-100">Промпт ассистента</h2>
-        <p className="mt-1 text-xs text-slate-500">Слева — промпт. Справа вверху — доработка с ИИ. Справа внизу — тестовый чат.</p>
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-100">Промпт ассистента</h2>
+          <p className="mt-1 text-xs text-slate-500">Слева — промпт. Справа вверху — доработка с ИИ. Справа внизу — тестовый чат.</p>
+        </div>
+        {systemPrompt.length < 1000 && (
+          <button
+            onClick={handleLoadPrepared}
+            disabled={saving}
+            className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" />
+            Загрузить подготовленные промты
+          </button>
+        )}
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-3 min-h-0">
