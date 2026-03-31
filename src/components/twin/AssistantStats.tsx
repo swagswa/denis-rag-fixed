@@ -38,16 +38,16 @@ export function AssistantStats() {
       const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0)
       const todayStr = todayDate.toISOString()
 
-      const allSessions = new Set(chats.map(c => c.session_id).filter(Boolean))
+      const allSessions = new Set(allChats.map(c => c.session_id).filter(Boolean))
       setTotal(allSessions.size)
 
-      const todaySessions = new Set(chats.filter(c => c.created_at >= todayStr).map(c => c.session_id).filter(Boolean))
+      const todaySessions = new Set(allChats.filter(c => c.created_at >= todayStr).map(c => c.session_id).filter(Boolean))
       setToday(todaySessions.size)
 
       const trackedSites: AssistantSiteKey[] = ['foundry', 'denismateev', 'aisovetnik', 'aitransformation', 'twin', 'preview']
 
       const siteStats: SiteStats[] = trackedSites.map(site => {
-        const matched = chats.filter(c => classifyAssistantSite(c.page) === site)
+        const matched = allChats.filter(c => classifyAssistantSite(c.page) === site)
         const sessions = new Set(matched.map(c => c.session_id).filter(Boolean))
         return { site, label: getAssistantSiteLabelByKey(site), sessions: sessions.size, messages: matched.length }
       })
