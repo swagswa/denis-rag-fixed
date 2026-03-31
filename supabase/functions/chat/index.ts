@@ -237,41 +237,14 @@ serve(async (req) => {
     });
 
     // ═══ SAVE CONVERSATION ═══
+    // Save each user→assistant exchange as a separate row with user_message, ai_message, page, session_id
+    // (matches the format the dashboard expects)
     const sessionId = body?.sessionId || crypto.randomUUID();
-    const visitorId = body?.visitorId || sessionId;
-    const siteId = body?.pageContext?.url?.includes("foundry") ? "foundry" : "denismateev";
+    const pageUrl = body?.pageContext?.url || null;
 
-    if (supabase) {
-      try {
-        // Upsert conversation
-        const { data: existing } = await supabase
-          .from("conversations")
-          .select("id")
-          .eq("visitor_id", sessionId)
-          .limit(1)
-          .single();
-
-        const conversationMessages = messages.map(m => ({
-          role: m.role,
-          content: m.content,
-          ts: new Date().toISOString(),
-        }));
-
-        if (existing) {
-          await supabase
-            .from("conversations")
-            .update({
-              messages: conversationMessages,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", existing.id);
-        } else {
-          await supabase.from("conversations").insert({
-            visitor_id: sessionId,
-            site_id: siteId,
-            messages: conversationMessages,
-          });
-        }
+    // We'll save the conversation AFTER getting the AI response
+    // For now, just extract the last user message
+    const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
       } catch (e) {
         console.warn("Conversation save error (non-fatal):", e);
       }
