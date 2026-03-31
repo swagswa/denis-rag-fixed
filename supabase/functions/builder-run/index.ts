@@ -409,11 +409,43 @@ ${filteredBrief}`;
       }
     }
 
+    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    if (myKpi && oppsCreated > 0) {
+      await supabase.from("agent_kpi").update({ current: (myKpi.current || 0) + oppsCreated, updated_at: new Date().toISOString() }).eq("id", myKpi.id);
+    }
+
+    // Feedback to analyst if conversion is low
+    if (filteredQueue.length >= 2 && oppsCreated === 0) {
+      try {
+        await supabase.from("agent_feedback").insert({
+          factory: "foundry",
+          from_agent: "builder",
+          to_agent: "analyst",
+          feedback_type: "optimization",
+          content: `Конверсия foundry-инсайтов: 0/${filteredQueue.length}. Нужны идеи: 1) Технически реализуемые за 2 недели (React + Supabase + AI API), 2) С доказательствами спроса в РФ (Вордстат, Авито, TG), 3) НИШЕВЫЕ (не generic AI tools). Лучше всего: боты для конкретной отрасли, SaaS-инструменты, автоматизация процессов.`,
+        } as any);
+      } catch {}
+    }
+
+    // Feedback to scout about what types of signals convert best
+    if (oppsCreated > 0) {
+      try {
+        await supabase.from("agent_feedback").insert({
+          factory: "foundry",
+          from_agent: "builder",
+          to_agent: "scout",
+          feedback_type: "optimization",
+          content: `Создано ${oppsCreated} проектов. Хорошо конвертируются: зарубежные стартапы БЕЗ аналога в РФ, решения для конкретных отраслей (не AI-обёртки). Ищи больше таких!`,
+        } as any);
+      } catch {}
+    }
+
     return new Response(JSON.stringify({
       success: true,
       insights_processed: queue.length,
       opportunities_created: oppsCreated,
       returned_to_analyst: returned,
+      kpi_updated: true,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
