@@ -252,14 +252,9 @@ ${selfOptimizationPrompt}
 
 ЗАДАЧА: Из РЕАЛЬНЫХ данных выше извлеки КОНКРЕТНЫЕ сигналы.
 
-🔴 КРИТИЧЕСКИ ВАЖНО ДЛЯ CONSULTING:
-- company_name — ОБЯЗАТЕЛЬНОЕ ПОЛЕ! Укажи РЕАЛЬНОЕ название компании из источника.
-- Если в источнике есть вакансия — company_name = название компании-работодателя.
-- Если в источнике есть новость — company_name = о какой компании новость.
-- Если в источнике есть тендер — company_name = название заказчика.
-- НИКОГДА не оставляй company_name пустым для consulting-сигналов!
-- Если не можешь определить конкретную компанию — НЕ СОЗДАВАЙ этот сигнал.
-- description: ЧТО КОНКРЕТНО ты увидел (вакансия, новость, жалоба, тендер) — с деталями!
+ДЛЯ CONSULTING СИГНАЛОВ:
+- company_name: если в источнике есть конкретная компания — укажи. Если нет — null (это ОК, компании найдёт Аналитик)
+- description: ЧТО КОНКРЕТНО ты увидел (тренд, вакансия, новость, жалоба, тендер) — с деталями!
 - signal_type: vacancy | tender | news | complaint | law_change | vendor_exit | bankruptcy | search_spike | seasonal | publication | hiring_without_automation
 - industry: отрасль
 - source: URL или название источника ОТКУДА ты это взял
@@ -279,7 +274,7 @@ ${selfOptimizationPrompt}
 - Если Firecrawl не подключен — используй свои знания, но помечай source как "ai_generated"
 - Максимум 15 сигналов (8 consulting + 7 foundry)
 - Geography: ТОЛЬКО РФ/СНГ (для consulting) или адаптация в РФ (для foundry)
-- 🔴 CONSULTING: company_name ОБЯЗАТЕЛЕН. Без названия компании = не создавай сигнал!
+- CONSULTING: company_name — бонус, но НЕ обязателен. Главное — конкретный тренд/событие с деталями
 - 🚫 FOUNDRY: НЕ генерируй похожие идеи! Каждый foundry-сигнал должен быть про РАЗНУЮ отрасль/нишу
 - 🚫 ЗАПРЕЩЕНЫ для foundry: prompt platforms, prompt marketplace, generic AI assistants, AI copywriters, ChatGPT wrappers, AI-обёртки, генераторы контента общего назначения
 - ✅ ХОРОШО для foundry: AI для конкретной ОТРАСЛИ (медицина, логистика, юристы, агро), автоматизация конкретного ПРОЦЕССА
@@ -363,11 +358,8 @@ ${selfOptimizationPrompt}
       const potential = item.potential === "foundry" ? "foundry" : "consulting";
       const companyName = compactText(item.company_name, 120) || null;
 
-      // 🔴 CONSULTING сигналы БЕЗ company_name — отбрасываем
-      if (potential === "consulting" && !companyName) {
-        console.log(`Skipped consulting signal without company_name: ${desc.slice(0, 80)}`);
-        continue;
-      }
+      // Скаут ищет ТРЕНДЫ — company_name необязателен.
+      // Конкретные компании найдёт Аналитик.
 
       toInsert.push({
         company_name: companyName,
