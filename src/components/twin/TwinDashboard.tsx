@@ -179,17 +179,22 @@ export function TwinDashboard() {
 
       // ═══ CHAT STATS ═══
       const chats = chatsRes.data || []
-      const chatLeadRows = chatLeadsRes.data || []
+      const contactPattern = /(\+7|8[\s\-\(]\d)|@[a-zA-Z0-9_]{4,}|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|свяж|позвон|перезвон|напиш.*мн|связат|call.*me|contact/i
       const chatSessionIds = new Set(chats.map((c: any) => c.session_id).filter(Boolean))
-      const realChatLeads = chatLeadRows.filter((l: any) => l.session_id && chatSessionIds.has(l.session_id))
+      const leadSessions = new Set(
+        chats
+          .filter((c: any) => c.user_message && contactPattern.test(c.user_message))
+          .map((c: any) => c.session_id)
+          .filter(Boolean)
+      )
       const todayD = new Date(); todayD.setHours(0, 0, 0, 0)
       const todaySessions = new Set(chats.filter((c: any) => c.created_at >= todayD.toISOString()).map((c: any) => c.session_id).filter(Boolean))
 
       setChatStats({
         total: chatSessionIds.size,
         today: todaySessions.size,
-        chatLeads: realChatLeads.length,
-        conversionRate: chatSessionIds.size > 0 ? ((realChatLeads.length / chatSessionIds.size) * 100).toFixed(1) : '0',
+        chatLeads: leadSessions.size,
+        conversionRate: chatSessionIds.size > 0 ? ((leadSessions.size / chatSessionIds.size) * 100).toFixed(1) : '0',
       })
     } catch (err) {
       console.error('[Dashboard] load error:', err)
