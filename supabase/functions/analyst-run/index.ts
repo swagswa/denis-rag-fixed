@@ -36,9 +36,11 @@ serve(async (req) => {
     if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
 
     let triggeredBy = "cron";
+    let factory = "consulting";
     try {
       const reqBody = await req.clone().json();
       triggeredBy = reqBody?.triggered_by || "cron";
+      factory = reqBody?.factory || "consulting";
     } catch { /* no body */ }
 
     const supabase = createClient(
