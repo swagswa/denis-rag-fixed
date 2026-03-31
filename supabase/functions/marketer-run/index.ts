@@ -116,24 +116,30 @@ ${pairedResults[idx].contacts || "(ничего не найдено)"}`).join("\
 - Регион: ${mandateRegion}
 - Компания должна быть РЕАЛЬНОЙ — из результатов поиска, НЕ выдуманной.
 
-КРИТИЧЕСКИ ВАЖНО — КОНКРЕТНЫЙ ЧЕЛОВЕК:
-Ты ОБЯЗАН найти КОНКРЕТНОГО человека (ЛПР) в компании:
-✅ ИМЯ И ФАМИЛИЯ (реальные, из результатов поиска)
-✅ ДОЛЖНОСТЬ (CEO, CTO, CDO, директор по развитию)
-✅ КОНТАКТ (Telegram handle, Email или LinkedIn URL — хотя бы один)
+🚨 КРИТИЧЕСКИ ВАЖНО — ЗАПРЕТ НА ВЫДУМЫВАНИЕ:
+Ты ОБЯЗАН использовать ТОЛЬКО данные из "НАЙДЕННЫЕ КОМПАНИИ" и "НАЙДЕННЫЕ КОНТАКТЫ".
+❌ ЗАПРЕЩЕНО: выдумывать имена, фамилии, email, telegram, linkedin — ДАЖЕ если они "звучат реалистично"
+❌ ЗАПРЕЩЕНО: подставлять типичные имена (Иван Петров, Алексей Смирнов) если их НЕТ в результатах поиска
+✅ РАЗРЕШЕНО: использовать ТОЛЬКО имена, контакты и компании, которые БУКВАЛЬНО присутствуют в тексте поиска выше
 
-Если НЕ можешь найти конкретного человека с контактом — НЕ квалифицируй! Верни reason.
+ПРОВЕРКА ПЕРЕД ОТВЕТОМ:
+Для каждого лида спроси себя:
+1. Имя ЛПР — я ВИЖУ это имя в результатах поиска? (да/нет)
+2. Контакт — я ВИЖУ этот email/TG/LinkedIn в результатах? (да/нет)
+3. Компания — она УПОМИНАЕТСЯ в результатах? (да/нет)
+Если хотя бы один ответ "нет" — НЕ квалифицируй, верни reason.
 
 Для каждого инсайта ниже:
 
-Если КВАЛИФИЦИРОВАН (есть реальная компания ${mandateSize} чел + реальный человек + контакт):
+Если КВАЛИФИЦИРОВАН (РЕАЛЬНАЯ компания + РЕАЛЬНЫЙ человек ИЗ ПОИСКА + РЕАЛЬНЫЙ контакт ИЗ ПОИСКА):
 {"source_index":N, "qualified":true,
- "company_name":"РЕАЛЬНОЕ название компании",
+ "company_name":"РЕАЛЬНОЕ название компании ИЗ РЕЗУЛЬТАТОВ ПОИСКА",
  "company_size":"~число сотрудников (оценка)",
  "company_website":"https://...",
- "contact_name":"Имя Фамилия (РЕАЛЬНОЕ)",
+ "contact_name":"Имя Фамилия (ТОЛЬКО ИЗ РЕЗУЛЬТАТОВ ПОИСКА)",
  "contact_role":"CEO/CTO/CDO",
- "contact_channel":"telegram: @xxx / email: xxx@xxx.ru / linkedin: url",
+ "contact_channel":"telegram: @xxx / email: xxx@xxx.ru / linkedin: url (ТОЛЬКО ИЗ РЕЗУЛЬТАТОВ ПОИСКА)",
+ "search_evidence":"ЦИТАТА из результатов поиска, где упоминается этот человек/контакт",
  "their_pain":"Конкретная боль ЭТОЙ компании",
  "our_offer":"Что конкретно предложить",
  "why_now":"Почему именно сейчас",
@@ -143,7 +149,7 @@ ${pairedResults[idx].contacts || "(ничего не найдено)"}`).join("\
  "approval_request":"Кому (Имя, должность, компания) + Что предложить + Канал связи + Ожидаемый чек"}
 
 Если НЕ КВАЛИФИЦИРОВАН:
-{"source_index":N, "qualified":false, "reason":"Конкретная причина: нет компании подходящего размера / не нашёл контакт ЛПР / компания вне мандата"}
+{"source_index":N, "qualified":false, "reason":"Конкретная причина: не нашёл реального ЛПР в результатах поиска / компания вне мандата / нет контакта"}
 
 Верни JSON-массив. Без markdown.
 
@@ -191,11 +197,26 @@ ${brief}`;
         const contactName = compact(item.contact_name, 100);
         const contactChannel = compact(item.contact_channel, 200);
         const msg = compact(item.outreach_message, 800);
+        const searchEvidence = compact(item.search_evidence, 300);
 
         // HARD VALIDATION: must have company, person name, contact, and message
         if (!cn || !contactName || !contactChannel || !msg) {
           await supabase.from("insights").update({ status: "returned", notes: "Маркетолог: не удалось найти конкретного ЛПР с контактом.", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
           try { await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "quality_issue", content: `"${insight.title}": нет конкретного ЛПР с контактом. Нужен инсайт с более конкретной компанией/отраслью.` } as any); } catch {}
+          returned++;
+          continue;
+        }
+
+        // ═══ ANTI-HALLUCINATION: verify contact exists in search results ═══
+        const searchData = pairedResults[idx - 1];
+        const allSearchText = `${searchData?.companies || ""} ${searchData?.contacts || ""}`.toLowerCase();
+        const nameParts = contactName.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
+        const nameFoundInSearch = nameParts.length > 0 && nameParts.some((part: string) => allSearchText.includes(part));
+
+        if (!nameFoundInSearch && FIRECRAWL_API_KEY) {
+          console.log(`[marketer] ❌ HALLUCINATED contact: "${contactName}" not found in search results for "${cn}"`);
+          await supabase.from("insights").update({ status: "returned", notes: `Маркетолог: контакт "${contactName}" не найден в результатах поиска — возможна галлюцинация.`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+          try { await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "hallucination", content: `"${insight.title}": GPT выдумал контакт "${contactName}". Этого человека нет в результатах Firecrawl. Нужен инсайт с более конкретной компанией, чтобы поиск дал результаты.` } as any); } catch {}
           returned++;
           continue;
         }
