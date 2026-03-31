@@ -124,6 +124,12 @@ async function resolveSystemPrompt({
     }
   }
 
+  // Quiz for early/vague conversations
+  const userMessages = messages.filter(m => m.role === "user");
+  if (userMessages.length <= 1) {
+    basePrompt += QUIZ_TRIGGER;
+  }
+
   // Auto-boost lead generation after 3+ exchanges without @deyuma
   if (shouldBoostLead(messages)) {
     basePrompt += LEAD_BOOSTER;
