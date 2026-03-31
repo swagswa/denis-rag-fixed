@@ -142,15 +142,37 @@ serve(async (req) => {
       .map((f: any) => `[${f.factory}/${f.feedback_type}]: ${f.content}`)
       .join("\n");
 
-    // ═══ PHASE 0.5: Загрузить KPI-цели ═══
+    // ═══ PHASE 0.5: Загрузить KPI-цели + САМООПТИМИЗАЦИЯ ═══
     const { data: kpiGoals } = await supabase
       .from("agent_kpi")
-      .select("factory, metric, target, current")
+      .select("id, factory, metric, target, current")
       .eq("active", true);
 
     const kpiContext = (kpiGoals || [])
       .map((k: any) => `[${k.factory}] ${k.metric}: ${k.current}/${k.target}`)
       .join("\n");
+
+    // Self-optimization: check if behind KPI
+    const myKpiConsulting = (kpiGoals || []).find((k: any) => k.factory === "consulting" && k.metric === "signals_per_week");
+    const myKpiFoundry = (kpiGoals || []).find((k: any) => k.factory === "foundry" && k.metric === "signals_per_week");
+    const consultingGap = myKpiConsulting ? Math.max(0, (myKpiConsulting.target || 0) - (myKpiConsulting.current || 0)) : 0;
+    const foundryGap = myKpiFoundry ? Math.max(0, (myKpiFoundry.target || 0) - (myKpiFoundry.current || 0)) : 0;
+    const totalGap = consultingGap + foundryGap;
+    const isUrgent = totalGap > 20;
+
+    let selfOptimizationPrompt = "";
+    if (totalGap > 0) {
+      selfOptimizationPrompt = `
+═══ 🚨 РЕЖИМ САМООПТИМИЗАЦИИ (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
+Consulting сигналы: осталось найти ${consultingGap} из ${myKpiConsulting?.target || "?"}
+Foundry сигналы: осталось найти ${foundryGap} из ${myKpiFoundry?.target || "?"}
+АДАПТАЦИЯ СТРАТЕГИИ:
+${isUrgent ? "- Увеличь количество сигналов до МАКСИМУМА (15)" : "- Старайся найти больше сигналов (10-12)"}
+- Расширь интерпретацию: включай СМЕЖНЫЕ отрасли и КОСВЕННЫЕ сигналы
+- Каждая вакансия, каждая новость — потенциальный сигнал. Не пропускай!
+- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Мне нужна обратная связь — какие отрасли/типы сигналов дают лучшую конверсию в инсайты? Я адаптирую поиск."
+`;
+    }
 
     // ═══ PHASE 1: Реальный скрейпинг источников ═══
     const scrapedData: { label: string; category: string; content: string }[] = [];
