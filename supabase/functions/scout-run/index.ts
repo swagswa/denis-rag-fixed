@@ -274,7 +274,7 @@ ${selfOptimizationPrompt}
 - Если Firecrawl не подключен — используй свои знания, но помечай source как "ai_generated"
 - Максимум 15 сигналов (8 consulting + 7 foundry)
 - Geography: ТОЛЬКО РФ/СНГ (для consulting) или адаптация в РФ (для foundry)
-- 🔴 CONSULTING: company_name ОБЯЗАТЕЛЕН. Без названия компании = не создавай сигнал!
+- CONSULTING: company_name — бонус, но НЕ обязателен. Главное — конкретный тренд/событие с деталями
 - 🚫 FOUNDRY: НЕ генерируй похожие идеи! Каждый foundry-сигнал должен быть про РАЗНУЮ отрасль/нишу
 - 🚫 ЗАПРЕЩЕНЫ для foundry: prompt platforms, prompt marketplace, generic AI assistants, AI copywriters, ChatGPT wrappers, AI-обёртки, генераторы контента общего назначения
 - ✅ ХОРОШО для foundry: AI для конкретной ОТРАСЛИ (медицина, логистика, юристы, агро), автоматизация конкретного ПРОЦЕССА
