@@ -139,7 +139,7 @@ serve(async (req) => {
       messages,
     });
 
-    const chosenModel = "openai/gpt-4o-mini";
+    const chosenModel = "openai/gpt-5.2";
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
