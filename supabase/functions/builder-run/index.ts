@@ -74,6 +74,8 @@ serve(async (req) => {
       "монетизация промтов", "prompt monetization", "prompt store", "prompt library",
       "chatgpt обёртка", "chatgpt wrapper", "ai ассистент общего", "generic ai assistant",
       "ai копирайтер", "ai copywriter", "ai writer", "генератор контента",
+      "betterprompt", "promptbase", "промт платформа", "промт маркетплейс",
+      "prompt optimization", "prompt tuning", "prompt builder",
     ];
 
     function isBannedIdea(title: string, description: string): boolean {
