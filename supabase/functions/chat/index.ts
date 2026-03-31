@@ -113,8 +113,6 @@ serve(async (req) => {
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!LOVABLE_API_KEY) {
       return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not configured" }), {
@@ -123,14 +121,14 @@ serve(async (req) => {
       });
     }
 
-    if (!SUPABASE_URL || !SERVICE_ROLE) {
-      return new Response(JSON.stringify({ error: "Supabase env not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Connect to the ORIGINAL Supabase project for settings/prompts
+    const ORIGINAL_SUPABASE_URL = "https://kuodvlyepoojqimutmvu.supabase.co";
+    const ORIGINAL_SERVICE_ROLE = Deno.env.get("ORIGINAL_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+    let supabase: ReturnType<typeof createClient> | null = null;
+    if (ORIGINAL_SERVICE_ROLE) {
+      supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_SERVICE_ROLE);
+    }
 
     const systemPrompt = await resolveSystemPrompt({
       supabase,
