@@ -108,12 +108,35 @@ serve(async (req) => {
     const allSearchResults = await Promise.all(searchPromises);
 
     // Pair results: [companyResults, contactResults] per insight
-    const pairedResults: { companies: string; contacts: string }[] = [];
+    const pairedResults: { companies: string; contacts: string; websiteContent: string }[] = [];
     for (let i = 0; i < queue.length; i++) {
       pairedResults.push({
         companies: allSearchResults[i * 2] || "",
         contacts: allSearchResults[i * 2 + 1] || "",
+        websiteContent: "",
       });
+    }
+
+    // ═══ PHASE 2.5: Scrape company websites for personalized outreach ═══
+    if (FIRECRAWL_API_KEY) {
+      const scrapePromises: Promise<void>[] = [];
+      for (let i = 0; i < pairedResults.length; i++) {
+        const companyLines = pairedResults[i].companies;
+        // Extract first URL from search results
+        const urlMatch = companyLines.match(/https?:\/\/[^\s|]+/);
+        if (urlMatch) {
+          const url = urlMatch[0].replace(/[,;)}\]]+$/, "");
+          scrapePromises.push(
+            firecrawlScrape(url, FIRECRAWL_API_KEY).then((content) => {
+              pairedResults[i].websiteContent = content;
+            })
+          );
+        }
+      }
+      if (scrapePromises.length > 0) {
+        await Promise.allSettled(scrapePromises);
+        console.log(`[marketer] Scraped ${scrapePromises.length} company websites`);
+      }
     }
 
     // ═══ SINGLE GPT CALL for all insights ═══
@@ -127,7 +150,11 @@ action_proposal: ${i.action_proposal || "—"}
 ${pairedResults[idx].companies || "(ничего не найдено)"}
 
 НАЙДЕННЫЕ КОНТАКТЫ (поиск):
-${pairedResults[idx].contacts || "(ничего не найдено)"}`).join("\n\n---\n\n");
+${pairedResults[idx].contacts || "(ничего не найдено)"}
+${pairedResults[idx].websiteContent ? `
+КОНТЕНТ САЙТА КОМПАНИИ (спарсен автоматически):
+${pairedResults[idx].websiteContent.slice(0, 1500)}
+ИНСАЙТЫ ДЛЯ ПЕРСОНАЛИЗАЦИИ: используй конкретные детали с сайта (продукты, услуги, технологии, проблемы) для ПЕРСОНАЛИЗИРОВАННОГО обращения. Например: "Увидел на вашем сайте, что вы работаете с X — хотим предложить Y".` : ""}`).join("\n\n---\n\n");
 
     const prompt = `Ты — маркетолог Дениса Матеева. Денис помогает компаниям внедрять AI и автоматизацию.
 
