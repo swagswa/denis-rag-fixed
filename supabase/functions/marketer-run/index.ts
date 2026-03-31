@@ -231,7 +231,7 @@ ${pairedResults[idx].websiteContent.slice(0, 1500)}
 {"source_index":N, "qualified":false, "reason":"Конкретная причина: не нашёл реального ЛПР в результатах поиска / компания вне мандата / нет контакта"}
 
 Верни JSON-массив. Без markdown.
-
+${selfOptimizationPrompt}
 ИНСАЙТЫ:
 ${brief}`;
 
