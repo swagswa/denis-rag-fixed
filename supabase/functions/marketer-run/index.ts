@@ -68,6 +68,28 @@ serve(async (req) => {
     const mandateSize = flows?.[0]?.target_company_size || "5-500";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
+    // ═══ SELF-OPTIMIZATION: KPI check ═══
+    const { data: kpiGoals } = await supabase
+      .from("agent_kpi")
+      .select("id, factory, metric, target, current")
+      .eq("active", true);
+
+    const myKpi = (kpiGoals || []).find((k: any) => k.factory === "consulting" && k.metric === "leads_per_week");
+    const kpiGap = myKpi ? Math.max(0, (myKpi.target || 0) - (myKpi.current || 0)) : 0;
+    const isUrgent = kpiGap > (myKpi?.target || 10) * 0.5;
+
+    let selfOptimizationPrompt = "";
+    if (kpiGap > 0) {
+      selfOptimizationPrompt = `
+═══ 🚨 САМООПТИМИЗАЦИЯ МАРКЕТОЛОГА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
+Осталось создать ${kpiGap} лидов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
+АДАПТАЦИЯ:
+${isUrgent ? "- Расширь критерии поиска: ищи не только ЛПР, но и КОМПАНИИ с болью — контакт можно найти позже" : "- Будь активнее в поиске: пробуй альтернативные каналы (LinkedIn, Telegram-каналы отрасли)"}
+- Если не находишь конкретного ЛПР — ВСЁРАВНО квалифицируй компанию, указав "контакт: найти через LinkedIn/hh.ru"
+- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Нужны инсайты с более КОНКРЕТНЫМ профилем ЦА. Указывай ОТРАСЛЬ + РАЗМЕР + КОНКРЕТНЫЕ ПРИЗНАКИ боли, по которым я могу искать компании."
+`;
+    }
+
     // Step 1: Get ALL consulting insights with status new/qualified
     const { data: allInsights, error: insErr } = await supabase
       .from("insights")
