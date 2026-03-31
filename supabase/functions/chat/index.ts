@@ -62,7 +62,7 @@ async function resolveSystemPrompt({
   override,
   messages,
 }: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: ReturnType<typeof createClient> | null;
   pageContext?: PageContext;
   override?: string;
   messages: ChatMessage[];
@@ -71,12 +71,13 @@ async function resolveSystemPrompt({
 
   let basePrompt = DEFAULT_SYSTEM_PROMPT;
 
-  try {
-    const { data } = await supabase
-      .from("settings")
-      .select("system_prompt, product_prompts")
-      .limit(1)
-      .single() as any;
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from("settings")
+        .select("system_prompt, product_prompts")
+        .limit(1)
+        .single() as any;
 
     const productKey = detectProductContext(pageContext);
     const productPrompt = data?.product_prompts?.[productKey];
@@ -86,8 +87,9 @@ async function resolveSystemPrompt({
     } else if (typeof data?.system_prompt === "string" && data.system_prompt.trim().length > 0) {
       basePrompt = data.system_prompt.trim();
     }
-  } catch (e) {
-    console.warn("Settings prompt fallback:", e);
+    } catch (e) {
+      console.warn("Settings prompt fallback:", e);
+    }
   }
 
   // Auto-boost lead generation after 3+ exchanges without @deyuma
@@ -113,8 +115,6 @@ serve(async (req) => {
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!LOVABLE_API_KEY) {
       return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not configured" }), {
@@ -123,14 +123,14 @@ serve(async (req) => {
       });
     }
 
-    if (!SUPABASE_URL || !SERVICE_ROLE) {
-      return new Response(JSON.stringify({ error: "Supabase env not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Connect to the ORIGINAL Supabase project for settings/prompts
+    const ORIGINAL_SUPABASE_URL = "https://kuodvlyepoojqimutmvu.supabase.co";
+    const ORIGINAL_SERVICE_ROLE = Deno.env.get("ORIGINAL_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+    let supabase: ReturnType<typeof createClient> | null = null;
+    if (ORIGINAL_SERVICE_ROLE) {
+      supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_SERVICE_ROLE);
+    }
 
     const systemPrompt = await resolveSystemPrompt({
       supabase,
