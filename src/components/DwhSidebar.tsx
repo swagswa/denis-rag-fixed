@@ -53,7 +53,6 @@ const navGroups: NavGroup[] = [
       { key: 'foundry-scout', label: 'Скаут', icon: Search },
       { key: 'foundry-analyst', label: 'Аналитик', icon: Lightbulb },
       { key: 'foundry-builder', label: 'Создатель', icon: Rocket },
-      { key: 'twin-opportunities', label: 'Проекты', icon: Briefcase },
     ],
   },
   {

@@ -7,23 +7,38 @@ import { edgeFetch } from '@/lib/api'
 type Lead = { id: string; message: string; role: string | null; company_size: string | null; name: string | null; company_name: string | null; topic_guess: string | null; lead_summary: string | null; status: string | null; telegram_sent: boolean | null; page: string | null; created_at: string }
 
 const STATUSES = ['pending_approval', 'approved', 'rejected', 'new', 'qualified', 'sent', 'converted', 'archived'] as const
-function statusLabel(s: string) { return s === 'pending_approval' ? 'Ожидает решения' : s === 'approved' ? 'Одобрен' : s === 'rejected' ? 'Отклонён' : s === 'new' ? 'Новый' : s === 'sent' ? '✉️ Отправлен' : s === 'converted' ? 'Конвертирован' : 'Архив' }
-function statusColor(s: string) { return s === 'pending_approval' ? 'bg-blue-500/10 text-blue-400' : s === 'approved' ? 'bg-slate-700 text-slate-300' : s === 'rejected' ? 'bg-red-500/10 text-red-400' : s === 'sent' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-700 text-slate-300' }
+const SELLER_STATUSES = ['approved', 'sent', 'converted'] as const
 
-export function TwinLeads() {
+function statusLabel(s: string) { return s === 'pending_approval' ? 'Ожидает решения' : s === 'approved' ? 'Одобрен' : s === 'rejected' ? 'Отклонён' : s === 'new' ? 'Новый' : s === 'sent' ? '✉️ Отправлен' : s === 'converted' ? 'Конвертирован' : 'Архив' }
+function statusColor(s: string) { return s === 'pending_approval' ? 'bg-blue-500/10 text-blue-400' : s === 'approved' ? 'bg-slate-700 text-slate-300' : s === 'rejected' ? 'bg-red-500/10 text-red-400' : s === 'sent' ? 'bg-emerald-500/10 text-emerald-400' : s === 'converted' ? 'bg-green-500/10 text-green-400' : 'bg-slate-700 text-slate-300' }
+
+export function TwinLeads({ sellerMode }: { sellerMode?: boolean }) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<string>('all')
   const [sendingId, setSendingId] = useState<string | null>(null)
 
+  const statusList = sellerMode ? SELLER_STATUSES : STATUSES
+
   const load = useCallback(async () => {
     setLoading(true)
     let q = supabase.from('leads').select('*').order('created_at', { ascending: false }).limit(200)
-    if (filter !== 'all') q = q.eq('status', filter)
+    
+    if (sellerMode) {
+      // Seller only sees leads that passed through marketer (approved/sent/converted)
+      if (filter !== 'all') {
+        q = q.eq('status', filter)
+      } else {
+        q = q.in('status', ['approved', 'sent', 'converted'])
+      }
+    } else {
+      if (filter !== 'all') q = q.eq('status', filter)
+    }
+    
     const { data } = await q
     setLeads((data as Lead[]) || [])
     setLoading(false)
-  }, [filter])
+  }, [filter, sellerMode])
 
   useEffect(() => { load() }, [load])
 
@@ -46,12 +61,16 @@ export function TwinLeads() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <MessageSquare className="h-6 w-6 text-blue-400" />
-        <h2 className="text-2xl font-bold text-slate-100">Лиды</h2>
+        <h2 className="text-2xl font-bold text-slate-100">{sellerMode ? 'Продавец — Сделки' : 'Лиды'}</h2>
         <span className="rounded-full bg-blue-500/10 px-3 py-0.5 text-sm font-medium text-blue-400">{leads.length}</span>
       </div>
 
+      {sellerMode && (
+        <p className="text-sm text-slate-500">Здесь только лиды, прошедшие через маркетолога и одобренные вами.</p>
+      )}
+
       <div className="flex flex-wrap gap-2">
-        {['all', ...STATUSES].map(s => (
+        {['all', ...statusList].map(s => (
           <button key={s} onClick={() => setFilter(s)} className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${filter === s ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
             {s === 'all' ? 'Все' : statusLabel(s)}
           </button>
@@ -59,7 +78,7 @@ export function TwinLeads() {
       </div>
 
       <div className="space-y-3">
-        {leads.length === 0 && <p className="py-8 text-center text-slate-500">Нет лидов</p>}
+        {leads.length === 0 && <p className="py-8 text-center text-slate-500">{sellerMode ? 'Нет одобренных лидов. Сначала маркетолог должен найти контакт, потом вы одобряете.' : 'Нет лидов'}</p>}
         {leads.map(l => (
           <div key={l.id} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
             <div className="flex items-start justify-between gap-3">
@@ -74,7 +93,7 @@ export function TwinLeads() {
                 <p className="text-xs text-slate-400 whitespace-pre-line">{l.message}</p>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                {l.status === 'pending_approval' && (
+                {l.status === 'pending_approval' && !sellerMode && (
                   <>
                     <button onClick={() => handleApprove(l.id)} className="rounded-md p-1.5 hover:bg-slate-700"><Check className="h-4 w-4 text-blue-400" /></button>
                     <button onClick={() => handleReject(l.id)} className="rounded-md p-1.5 hover:bg-red-500/10"><XIcon className="h-4 w-4 text-red-400" /></button>

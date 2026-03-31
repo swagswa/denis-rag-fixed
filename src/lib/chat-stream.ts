@@ -56,7 +56,12 @@ export async function streamChat({
   if (!resp.ok || !resp.body) {
     if (resp.status === 429) throw new Error('Слишком много запросов, попробуйте позже.')
     if (resp.status === 402) throw new Error('Превышен лимит использования AI.')
-    throw new Error('Ошибка соединения')
+    let errMsg = 'Ошибка соединения'
+    try {
+      const errData = await resp.json()
+      if (errData?.error) errMsg = errData.error
+    } catch {}
+    throw new Error(errMsg)
   }
 
   const reader = resp.body.getReader()
