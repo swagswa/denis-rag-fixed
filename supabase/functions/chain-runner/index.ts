@@ -19,13 +19,34 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
     const chain = factory === "foundry"
-      ? ["scout-run", "analyst-run", "builder-run"]
+      ? ["scout-run", "analyst-run", "foundry-qualify", "builder-run"]
       : ["scout-run", "analyst-run", "marketer-run"];
 
     const results: { fn: string; status: number; data: any }[] = [];
 
     for (const fn of chain) {
       console.log(`[${factory}] Running ${fn}...`);
+
+      // Special internal step: qualify new foundry insights for builder
+      if (fn === "foundry-qualify") {
+        try {
+          const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+          const sb = createClient(SUPABASE_URL, SERVICE_KEY);
+          const { data: newFoundry, error: qErr } = await sb
+            .from("insights")
+            .update({ status: "qualified", updated_at: new Date().toISOString() })
+            .eq("status", "new")
+            .in("opportunity_type", ["foundry", "innovation_pilot"])
+            .select("id");
+          const count = newFoundry?.length || 0;
+          console.log(`[foundry] Qualified ${count} insights for builder${qErr ? ` (error: ${qErr.message})` : ""}`);
+          results.push({ fn, status: 200, data: { qualified: count } });
+        } catch (e: any) {
+          console.error(`[foundry] qualify error:`, e.message);
+          results.push({ fn, status: 500, data: { error: e.message } });
+        }
+        continue;
+      }
 
       try {
         const res = await fetch(`${SUPABASE_URL}/functions/v1/${fn}`, {

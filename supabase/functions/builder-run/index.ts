@@ -63,10 +63,32 @@ serve(async (req) => {
       .from("startup_opportunities")
       .select("insight_id, idea")
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
 
     const alreadyProcessed = new Set((existingOpps || []).filter((o: any) => o.insight_id).map((o: any) => o.insight_id));
     const existingIdeas = (existingOpps || []).map((o: any) => (o.idea || "").toLowerCase()).filter(Boolean);
+
+    // ═══ BANNED CATEGORIES — auto-reject insights about oversaturated niches ═══
+    const BANNED_KEYWORDS = [
+      "prompt marketplace", "платформа для промтов", "prompt engineering", "prompt platform",
+      "монетизация промтов", "prompt monetization", "prompt store", "prompt library",
+      "chatgpt обёртка", "chatgpt wrapper", "ai ассистент общего", "generic ai assistant",
+      "ai копирайтер", "ai copywriter", "ai writer", "генератор контента",
+    ];
+
+    function isBannedIdea(title: string, description: string): boolean {
+      const text = `${title} ${description}`.toLowerCase();
+      return BANNED_KEYWORDS.some(kw => text.includes(kw));
+    }
+
+    function isSimilarToExisting(newIdea: string): boolean {
+      const words = newIdea.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      if (words.length === 0) return false;
+      return existingIdeas.some(existing => {
+        const matchCount = words.filter(w => existing.includes(w)).length;
+        return matchCount / words.length > 0.5; // >50% word overlap = duplicate
+      });
+    }
     const queue = insights.filter((i: any) => !alreadyProcessed.has(i.id));
 
     if (queue.length === 0) {
@@ -89,12 +111,53 @@ problem: ${i.problem || "(не указана)"}
 action_proposal: ${i.action_proposal || "(не указано)"}`)
       .join("\n\n");
 
+    // ═══ PRE-FILTER: reject banned/duplicate insights before sending to AI ═══
+    const filteredQueue: typeof queue = [];
+    for (const insight of queue) {
+      const title = (insight as any).title || "";
+      const desc = (insight as any).what_happens || "";
+      
+      if (isBannedIdea(title, desc)) {
+        console.log(`[builder] BANNED category: "${title}"`);
+        await supabase.from("insights").update({ status: "returned", notes: "Билдер: запрещённая/перенасыщенная категория (prompt platform, generic AI tool и т.п.)", updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
+        try { await supabase.from("agent_feedback").insert({ factory: "foundry", from_agent: "builder", to_agent: "analyst", feedback_type: "banned_category", content: `"${title}" — запрещённая категория. НЕ присылай: prompt platforms, generic AI tools, AI копирайтеры. Нужны НИШЕВЫЕ идеи для конкретной отрасли.` } as any); } catch {}
+        returned++;
+        continue;
+      }
+      
+      if (isSimilarToExisting(title)) {
+        console.log(`[builder] DUPLICATE idea: "${title}"`);
+        await supabase.from("insights").update({ status: "returned", notes: `Билдер: идея слишком похожа на уже существующий проект.`, updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
+        returned++;
+        continue;
+      }
+      
+      filteredQueue.push(insight);
+    }
+
+    if (filteredQueue.length === 0) {
+      return new Response(JSON.stringify({ success: true, insights_processed: queue.length, opportunities_created: 0, returned_to_analyst: returned, message: "All insights filtered out (banned/duplicate)" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Rebuild brief with filtered queue
+    const filteredBrief = filteredQueue
+      .map((i: any, idx: number) => `#${idx + 1}
+title: ${i.title}
+what_happens: ${i.what_happens}
+why_important: ${i.why_important || "(не указано)"}
+problem: ${i.problem || "(не указана)"}
+action_proposal: ${i.action_proposal || "(не указано)"}`)
+      .join("\n\n");
+
     const prompt = `Ты — AI-создатель (builder) стартапов для рынка России и СНГ. Ты СТРОИШЬ MVP AI-сервисов за 2 недели. В ОДНОГО. Без команды.
 
 МАНДАТ (ЖЁСТКИЙ — нарушение = автоматический отказ):
 - Отрасль: ${mandateIndustry}. Идеи ВНЕ этих отраслей — автоматический ОТКАЗ.
 - Регион: ${mandateRegion}
 - Если идея дублирует уже существующий проект — автоматический ОТКАЗ.
+- 🚫 ЗАПРЕЩЕНЫ: prompt platforms, generic AI assistants, AI copywriters, ChatGPT wrappers — это перенасыщенные категории.
 ${existingIdeasBrief}
 
 ТЫ ПОЛУЧАЕШЬ КВАЛИФИЦИРОВАННЫЕ ИНСАЙТЫ от Аналитика. Каждый уже прошёл фильтр.
@@ -158,7 +221,7 @@ ${existingIdeasBrief}
 5) Верни строго JSON-массив без markdown.
 
 ИНСАЙТЫ:
-${brief}`;
+${filteredBrief}`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -208,14 +271,13 @@ ${brief}`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    let oppsCreated = 0;
-    let returned = 0;
+    // Note: oppsCreated starts fresh; 'returned' already has pre-filter count from above
 
     for (const item of aiItems) {
       const sourceIndex = Number(item?.source_index);
-      if (!Number.isInteger(sourceIndex) || sourceIndex < 1 || sourceIndex > queue.length) continue;
+      if (!Number.isInteger(sourceIndex) || sourceIndex < 1 || sourceIndex > filteredQueue.length) continue;
 
-      const insight = queue[sourceIndex - 1] as any;
+      const insight = filteredQueue[sourceIndex - 1] as any;
       if (!insight) continue;
 
       if (item.accepted) {
