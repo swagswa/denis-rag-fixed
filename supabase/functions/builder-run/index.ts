@@ -271,14 +271,13 @@ ${filteredBrief}`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    let oppsCreated = 0;
-    let returned = 0;
+    // Note: oppsCreated starts fresh; 'returned' already has pre-filter count from above
 
     for (const item of aiItems) {
       const sourceIndex = Number(item?.source_index);
-      if (!Number.isInteger(sourceIndex) || sourceIndex < 1 || sourceIndex > queue.length) continue;
+      if (!Number.isInteger(sourceIndex) || sourceIndex < 1 || sourceIndex > filteredQueue.length) continue;
 
-      const insight = queue[sourceIndex - 1] as any;
+      const insight = filteredQueue[sourceIndex - 1] as any;
       if (!insight) continue;
 
       if (item.accepted) {
