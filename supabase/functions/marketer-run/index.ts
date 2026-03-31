@@ -50,25 +50,27 @@ serve(async (req) => {
     const mandateSize = flows?.[0]?.target_company_size || "5-500";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
-    const { data: insights, error: insErr } = await supabase
+    // Step 1: Get ALL consulting insights with status new/qualified
+    const { data: allInsights, error: insErr } = await supabase
       .from("insights")
       .select("id, title, company_name, what_happens, why_important, problem, action_proposal, signal_id")
       .in("status", ["new", "qualified"])
       .eq("opportunity_type", "consulting")
-      .order("created_at", { ascending: true })
-      .limit(3);
+      .order("created_at", { ascending: false })
+      .limit(20);
 
     if (insErr) throw insErr;
-    if (!insights || insights.length === 0) {
+    if (!allInsights || allInsights.length === 0) {
       return new Response(JSON.stringify({ success: true, message: "No new consulting insights to process" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const ids = insights.map((i: any) => i.id);
-    const { data: existing } = await supabase.from("leads").select("topic_guess").in("topic_guess", ids.map((id: string) => `insight:${id}`));
+    // Step 2: Check which already have leads — exclude them BEFORE limiting
+    const allIds = allInsights.map((i: any) => i.id);
+    const { data: existing } = await supabase.from("leads").select("topic_guess").in("topic_guess", allIds.map((id: string) => `insight:${id}`));
     const done = new Set((existing || []).map((l: any) => l.topic_guess));
-    const queue = insights.filter((i: any) => !done.has(`insight:${i.id}`));
+    const queue = allInsights.filter((i: any) => !done.has(`insight:${i.id}`)).slice(0, 3);
     if (queue.length === 0) {
       return new Response(JSON.stringify({ success: true, message: "All insights already processed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
