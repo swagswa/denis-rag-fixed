@@ -346,13 +346,17 @@ serve(async (req) => {
         // Save conversation to DB after stream completes
         if (supabase && lastUserMessage && aiTextCollector) {
           try {
-            await supabase.from("conversations").insert({
+            const { error: convErr } = await supabase.from("conversations").insert({
               user_message: lastUserMessage,
               ai_message: aiTextCollector,
               page: pageUrl,
               session_id: sessionId,
             });
-            console.log("Conversation saved, session:", sessionId.slice(0, 8));
+            if (convErr) {
+              console.warn("Conversation insert error:", convErr.message);
+            } else {
+              console.log("Conversation saved, session:", sessionId.slice(0, 8));
+            }
           } catch (e) {
             console.warn("Conversation save error (non-fatal):", e);
           }
