@@ -252,16 +252,21 @@ ${selfOptimizationPrompt}
 
 ЗАДАЧА: Из РЕАЛЬНЫХ данных выше извлеки КОНКРЕТНЫЕ сигналы.
 
-ДЛЯ CONSULTING СИГНАЛОВ:
-- company_name: РЕАЛЬНАЯ компания из источника (если есть). Если нет конкретной — укажи null
-- description: ЧТО КОНКРЕТНО ты увидел (вакансия, новость, жалоба, тендер)
+🔴 КРИТИЧЕСКИ ВАЖНО ДЛЯ CONSULTING:
+- company_name — ОБЯЗАТЕЛЬНОЕ ПОЛЕ! Укажи РЕАЛЬНОЕ название компании из источника.
+- Если в источнике есть вакансия — company_name = название компании-работодателя.
+- Если в источнике есть новость — company_name = о какой компании новость.
+- Если в источнике есть тендер — company_name = название заказчика.
+- НИКОГДА не оставляй company_name пустым для consulting-сигналов!
+- Если не можешь определить конкретную компанию — НЕ СОЗДАВАЙ этот сигнал.
+- description: ЧТО КОНКРЕТНО ты увидел (вакансия, новость, жалоба, тендер) — с деталями!
 - signal_type: vacancy | tender | news | complaint | law_change | vendor_exit | bankruptcy | search_spike | seasonal | publication | hiring_without_automation
 - industry: отрасль
 - source: URL или название источника ОТКУДА ты это взял
 - potential: "consulting"
 
 ДЛЯ FOUNDRY СИГНАЛОВ:
-- company_name: null (или название зарубежного стартапа-образца)
+- company_name: название зарубежного стартапа-образца (если есть) или null
 - description: ЧТО за продукт/идея + ПОЧЕМУ актуально для РФ
 - signal_type: global_startup | search_spike | vendor_exit | viral_trend | regulation | market_gap
 - industry: отрасль
@@ -273,9 +278,10 @@ ${selfOptimizationPrompt}
 - Каждый сигнал должен иметь source — откуда ты его взял
 - Если Firecrawl не подключен — используй свои знания, но помечай source как "ai_generated"
 - Максимум 15 сигналов (8 consulting + 7 foundry)
-- География: ТОЛЬКО РФ/СНГ (для consulting) или адаптация в РФ (для foundry)
+- Geography: ТОЛЬКО РФ/СНГ (для consulting) или адаптация в РФ (для foundry)
+- 🔴 CONSULTING: company_name ОБЯЗАТЕЛЕН. Без названия компании = не создавай сигнал!
 - 🚫 FOUNDRY: НЕ генерируй похожие идеи! Каждый foundry-сигнал должен быть про РАЗНУЮ отрасль/нишу
-- 🚫 ЗАПРЕЩЕНЫ для foundry: prompt platforms, prompt marketplace, prompt monetization, generic AI assistants, AI copywriters, ChatGPT wrappers, AI-обёртки, платформы для промтов, генераторы контента общего назначения, BetterPrompt, PromptBase и подобное
+- 🚫 ЗАПРЕЩЕНЫ для foundry: prompt platforms, prompt marketplace, generic AI assistants, AI copywriters, ChatGPT wrappers, AI-обёртки, генераторы контента общего назначения
 - ✅ ХОРОШО для foundry: AI для конкретной ОТРАСЛИ (медицина, логистика, юристы, агро), автоматизация конкретного ПРОЦЕССА
 
 ФОРМАТ: строго JSON-массив:
@@ -355,9 +361,16 @@ ${selfOptimizationPrompt}
       existingDescriptions.add(descKey);
 
       const potential = item.potential === "foundry" ? "foundry" : "consulting";
+      const companyName = compactText(item.company_name, 120) || null;
+
+      // 🔴 CONSULTING сигналы БЕЗ company_name — отбрасываем
+      if (potential === "consulting" && !companyName) {
+        console.log(`Skipped consulting signal without company_name: ${desc.slice(0, 80)}`);
+        continue;
+      }
 
       toInsert.push({
-        company_name: compactText(item.company_name, 120) || null,
+        company_name: companyName,
         description: desc,
         signal_type: compactText(item.signal_type, 50),
         industry: compactText(item.industry, 80) || null,
@@ -371,55 +384,11 @@ ${selfOptimizationPrompt}
     if (toInsert.length > 0) {
       const { error: insertError } = await supabase.from("signals").insert(toInsert);
       if (insertError) throw insertError;
-
-      // ═══ PHASE 3.5: Сохраняем сигналы в базу знаний (documents) ═══
-      const kbDocs = toInsert.map((sig: any) => {
-        const content = [
-          `# [Signal] ${sig.company_name || sig.signal_type}`,
-          `Тип сигнала: ${sig.signal_type}`,
-          `Потенциал: ${sig.potential}`,
-          sig.industry ? `Индустрия: ${sig.industry}` : null,
-          sig.company_name ? `Компания: ${sig.company_name}` : null,
-          `Источник: ${sig.source || "н/д"}`,
-          `\n## Описание\n${sig.description}`,
-          sig.notes ? `\n## Заметки\n${sig.notes}` : null,
-        ].filter(Boolean).join("\n");
-
-        return {
-          title: `[Signal] ${sig.company_name || sig.signal_type}: ${sig.description.slice(0, 80)}`,
-          content,
-          source_type: "agent",
-          source_name: "scout-run",
-          topic: sig.potential,
-          metadata_json: {
-            signal_type: sig.signal_type,
-            potential: sig.potential,
-            industry: sig.industry,
-            company_name: sig.company_name,
-            auto_saved: true,
-          },
-        };
-      });
-
-      const { error: kbError } = await supabase.from("documents").insert(kbDocs);
-      if (kbError) console.error("KB save error (non-fatal):", kbError);
     }
 
     // ═══ PHASE 4: Логируем запуск ═══
-    try {
-      await supabase.from("sync_runs").insert({
-        function_name: "scout-run",
-        status: "ok",
-        items_found: toInsert.length,
-        metadata: {
-          triggered_by: triggeredBy,
-          sources_scraped: scrapedData.length,
-          firecrawl_enabled: !!FIRECRAWL_API_KEY,
-          signals_consulting: toInsert.filter((s) => s.potential === "consulting").length,
-          signals_foundry: toInsert.filter((s) => s.potential === "foundry").length,
-        },
-      } as any);
-    } catch (e: any) { console.error("sync_runs log error:", e); }
+    // ═══ PHASE 4: Логируем результат ═══
+    console.log(`Scout completed: ${toInsert.length} signals (${toInsert.filter((s: any) => s.potential === "consulting").length} consulting, ${toInsert.filter((s: any) => s.potential === "foundry").length} foundry)`);
 
     // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
     const consultingCreated = toInsert.filter((s: any) => s.potential === "consulting").length;
