@@ -41,6 +41,29 @@ serve(async (req) => {
     const mandateIndustry = flows?.map((f: any) => f.target_industry).filter(Boolean).join(", ") || "e-com, маркетплейсы, AI-сервисы";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
+    // ═══ SELF-OPTIMIZATION: KPI check ═══
+    const { data: kpiGoals } = await supabase
+      .from("agent_kpi")
+      .select("id, factory, metric, target, current")
+      .eq("active", true);
+
+    const myKpi = (kpiGoals || []).find((k: any) => k.factory === "foundry" && k.metric === "ideas_per_week");
+    const kpiGap = myKpi ? Math.max(0, (myKpi.target || 0) - (myKpi.current || 0)) : 0;
+    const isUrgent = kpiGap > (myKpi?.target || 5) * 0.5;
+
+    let selfOptimizationPrompt = "";
+    if (kpiGap > 0) {
+      selfOptimizationPrompt = `
+═══ 🚨 САМООПТИМИЗАЦИЯ БИЛДЕРА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
+Осталось создать ${kpiGap} проектов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
+АДАПТАЦИЯ:
+${isUrgent ? "- Будь менее строгим: принимай идеи с ЧАСТИЧНЫМИ доказательствами спроса" : "- Расширь критерии: рассмотри идеи из СМЕЖНЫХ отраслей"}
+- Даже если MVP сложноват — можно начать с УПРОЩЁННОЙ версии
+- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Нужны НИШЕВЫЕ идеи для конкретных отраслей (медицина, логистика, агро). С доказательствами спроса: Вордстат, Авито, TG-обсуждения."
+- РЕКОМЕНДАЦИИ СКАУТУ: "Ищи зарубежные стартапы в нишах: ${mandateIndustry}. Особенно те, у которых НЕТ аналога в РФ."
+`;
+    }
+
     // Builder получает ТОЛЬКО квалифицированные инсайты от Аналитика
     const { data: insights, error: insightsError } = await supabase
       .from("insights")
@@ -114,6 +137,8 @@ action_proposal: ${i.action_proposal || "(не указано)"}`)
       .join("\n\n");
 
     // ═══ PRE-FILTER: reject banned/duplicate insights before sending to AI ═══
+    let returned = 0;
+    let oppsCreated = 0;
     const filteredQueue: typeof queue = [];
     for (const insight of queue) {
       const title = (insight as any).title || "";
@@ -221,7 +246,7 @@ ${existingIdeasBrief}
 3) demand_proof — ОБЯЗАТЕЛЬНОЕ поле. Без конкретных доказательств спроса — НЕ ПРИНИМАЙ.
 4) mvp_plan — КОНКРЕТНЫЙ по дням.
 5) Верни строго JSON-массив без markdown.
-
+${selfOptimizationPrompt}
 ИНСАЙТЫ:
 ${filteredBrief}`;
 
@@ -386,11 +411,43 @@ ${filteredBrief}`;
       }
     }
 
+    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    if (myKpi && oppsCreated > 0) {
+      await supabase.from("agent_kpi").update({ current: (myKpi.current || 0) + oppsCreated, updated_at: new Date().toISOString() }).eq("id", myKpi.id);
+    }
+
+    // Feedback to analyst if conversion is low
+    if (filteredQueue.length >= 2 && oppsCreated === 0) {
+      try {
+        await supabase.from("agent_feedback").insert({
+          factory: "foundry",
+          from_agent: "builder",
+          to_agent: "analyst",
+          feedback_type: "optimization",
+          content: `Конверсия foundry-инсайтов: 0/${filteredQueue.length}. Нужны идеи: 1) Технически реализуемые за 2 недели (React + Supabase + AI API), 2) С доказательствами спроса в РФ (Вордстат, Авито, TG), 3) НИШЕВЫЕ (не generic AI tools). Лучше всего: боты для конкретной отрасли, SaaS-инструменты, автоматизация процессов.`,
+        } as any);
+      } catch {}
+    }
+
+    // Feedback to scout about what types of signals convert best
+    if (oppsCreated > 0) {
+      try {
+        await supabase.from("agent_feedback").insert({
+          factory: "foundry",
+          from_agent: "builder",
+          to_agent: "scout",
+          feedback_type: "optimization",
+          content: `Создано ${oppsCreated} проектов. Хорошо конвертируются: зарубежные стартапы БЕЗ аналога в РФ, решения для конкретных отраслей (не AI-обёртки). Ищи больше таких!`,
+        } as any);
+      } catch {}
+    }
+
     return new Response(JSON.stringify({
       success: true,
       insights_processed: queue.length,
       opportunities_created: oppsCreated,
       returned_to_analyst: returned,
+      kpi_updated: true,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

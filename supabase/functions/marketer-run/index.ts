@@ -68,6 +68,28 @@ serve(async (req) => {
     const mandateSize = flows?.[0]?.target_company_size || "5-500";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
+    // ═══ SELF-OPTIMIZATION: KPI check ═══
+    const { data: kpiGoals } = await supabase
+      .from("agent_kpi")
+      .select("id, factory, metric, target, current")
+      .eq("active", true);
+
+    const myKpi = (kpiGoals || []).find((k: any) => k.factory === "consulting" && k.metric === "leads_per_week");
+    const kpiGap = myKpi ? Math.max(0, (myKpi.target || 0) - (myKpi.current || 0)) : 0;
+    const isUrgent = kpiGap > (myKpi?.target || 10) * 0.5;
+
+    let selfOptimizationPrompt = "";
+    if (kpiGap > 0) {
+      selfOptimizationPrompt = `
+═══ 🚨 САМООПТИМИЗАЦИЯ МАРКЕТОЛОГА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
+Осталось создать ${kpiGap} лидов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
+АДАПТАЦИЯ:
+${isUrgent ? "- Расширь критерии поиска: ищи не только ЛПР, но и КОМПАНИИ с болью — контакт можно найти позже" : "- Будь активнее в поиске: пробуй альтернативные каналы (LinkedIn, Telegram-каналы отрасли)"}
+- Если не находишь конкретного ЛПР — ВСЁРАВНО квалифицируй компанию, указав "контакт: найти через LinkedIn/hh.ru"
+- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Нужны инсайты с более КОНКРЕТНЫМ профилем ЦА. Указывай ОТРАСЛЬ + РАЗМЕР + КОНКРЕТНЫЕ ПРИЗНАКИ боли, по которым я могу искать компании."
+`;
+    }
+
     // Step 1: Get ALL consulting insights with status new/qualified
     const { data: allInsights, error: insErr } = await supabase
       .from("insights")
@@ -209,7 +231,7 @@ ${pairedResults[idx].websiteContent.slice(0, 1500)}
 {"source_index":N, "qualified":false, "reason":"Конкретная причина: не нашёл реального ЛПР в результатах поиска / компания вне мандата / нет контакта"}
 
 Верни JSON-массив. Без markdown.
-
+${selfOptimizationPrompt}
 ИНСАЙТЫ:
 ${brief}`;
 
@@ -313,7 +335,38 @@ ${brief}`;
       }
     }
 
-    return new Response(JSON.stringify({ success: true, insights_processed: queue.length, leads_created: leadsCreated, returned_to_analyst: returned }), {
+    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    if (myKpi && leadsCreated > 0) {
+      await supabase.from("agent_kpi").update({ current: (myKpi.current || 0) + leadsCreated, updated_at: new Date().toISOString() }).eq("id", myKpi.id);
+    }
+
+    // If conversion is very low, tell analyst what's wrong
+    if (queue.length >= 3 && leadsCreated === 0) {
+      try {
+        await supabase.from("agent_feedback").insert({
+          factory: "consulting",
+          from_agent: "marketer",
+          to_agent: "analyst",
+          feedback_type: "optimization",
+          content: `Конверсия инсайтов в лиды: 0/${queue.length}. Проблемы: ${returned > 0 ? "не могу найти реальных ЛПР по этим инсайтам" : "инсайты слишком абстрактные"}. Нужно: 1) Конкретная ОТРАСЛЬ (не "разные"), 2) Конкретные ПРИЗНАКИ компаний для поиска, 3) ПОИСКОВЫЕ ЗАПРОСЫ для Firecrawl.`,
+        } as any);
+      } catch {}
+    }
+
+    // Tell scout what industries produce better leads
+    if (leadsCreated > 0) {
+      try {
+        await supabase.from("agent_feedback").insert({
+          factory: "consulting",
+          from_agent: "marketer",
+          to_agent: "scout",
+          feedback_type: "optimization",
+          content: `Успешно создано ${leadsCreated} лидов. Продолжай искать сигналы в тех же отраслях/типах. Лучше всего конвертируются: вакансии (hh.ru), тендеры (zakupki.gov.ru), конкретные компании с болью.`,
+        } as any);
+      } catch {}
+    }
+
+    return new Response(JSON.stringify({ success: true, insights_processed: queue.length, leads_created: leadsCreated, returned_to_analyst: returned, kpi_updated: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

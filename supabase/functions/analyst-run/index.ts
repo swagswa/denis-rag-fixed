@@ -86,15 +86,34 @@ serve(async (req) => {
       .map((f: any) => `[${f.factory}/${f.feedback_type}]: ${f.content}`)
       .join("\n");
 
-    // Load KPI targets
+    // Load KPI targets + SELF-OPTIMIZATION
     const { data: kpiGoals } = await supabase
       .from("agent_kpi")
-      .select("factory, metric, target, current")
+      .select("id, factory, metric, target, current")
       .eq("active", true);
 
     const kpiContext = (kpiGoals || [])
       .map((k: any) => `[${k.factory}] ${k.metric}: ${k.current}/${k.target}`)
       .join("\n");
+
+    // Self-optimization: check analyst KPI
+    const myKpi = (kpiGoals || []).find((k: any) => k.factory === factory && k.metric === "insights_per_week");
+    const kpiGap = myKpi ? Math.max(0, (myKpi.target || 0) - (myKpi.current || 0)) : 0;
+    const isUrgent = kpiGap > (myKpi?.target || 20) * 0.5;
+
+    let selfOptimizationPrompt = "";
+    if (kpiGap > 0) {
+      selfOptimizationPrompt = `
+═══ 🚨 САМООПТИМИЗАЦИЯ АНАЛИТИКА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
+Осталось создать ${kpiGap} инсайтов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
+АДАПТАЦИЯ:
+${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала, если он хоть немного релевантен" : "- Расширь критерии: бери сигналы из СМЕЖНЫХ отраслей"}
+- Используй ИСТОРИЧЕСКИЕ сигналы (см. ниже) — они могут стать актуальными при новых триггерах
+- Не будь слишком строгим — Маркетолог/Билдер сами отфильтруют нерелевантное
+- РЕКОМЕНДАЦИИ СКАУТУ: "Нужно больше сигналов из отраслей: ${factory === "consulting" ? "логистика, медицина, образование, ритейл" : "AgriTech, EdTech, FinTech, HealthTech"}. Текущие сигналы слишком общие."
+- РЕКОМЕНДАЦИИ ${factory === "consulting" ? "МАРКЕТОЛОГУ" : "БИЛДЕРУ"}: "Даю больше инсайтов. Возвращай с КОНКРЕТНЫМИ причинами — я адаптируюсь."
+`;
+    }
 
     // ═══ PHASE 1: Process NEW signals (including recycled ones) ═══
     // Filter signals by factory to prevent cross-contamination
@@ -306,6 +325,7 @@ serve(async (req) => {
 
 ${feedbackContext ? `\n═══ ОБРАТНАЯ СВЯЗЬ ОТ МАРКЕТОЛОГА/БИЛДЕРА (учти при анализе!):\n${feedbackContext}\nАдаптируй свои инсайты с учётом этой обратной связи!\n` : ""}
 ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI (если отстаём — будь менее строгим фильтром):\n${kpiContext}\n` : ""}
+${selfOptimizationPrompt}
 ${historicalContext ? `\n═══ ИСТОРИЧЕСКИЕ СИГНАЛЫ (за последние 7 дней) ═══
 Эти сигналы УЖЕ были обработаны ранее, НО могут снова стать актуальными!
 Если новый сигнал создаёт ТРИГГЕР, который делает старый сигнал релевантным — используй их ВМЕСТЕ для создания более сильного инсайта.
@@ -451,6 +471,47 @@ ${brief}`;
         .in("id", skippedSignals.map((signal) => signal.id));
     }
 
+    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    if (myKpi && toInsert.length > 0) {
+      await supabase.from("agent_kpi").update({ current: (myKpi.current || 0) + toInsert.length, updated_at: new Date().toISOString() }).eq("id", myKpi.id);
+    }
+
+    // Feedback to scout if few signals are usable
+    if (queue.length > 3 && toInsert.length < queue.length * 0.3) {
+      try {
+        await supabase.from("agent_feedback").insert({
+          factory,
+          from_agent: "analyst",
+          to_agent: "scout",
+          feedback_type: "optimization",
+          content: `Конверсия сигналов в инсайты: ${toInsert.length}/${queue.length} (${Math.round(toInsert.length / queue.length * 100)}%). Нужны более КОНКРЕТНЫЕ сигналы: с названиями компаний, ссылками на вакансии/тендеры, конкретными событиями. Абстрактные "тренды" не конвертируются.`,
+        } as any);
+      } catch {}
+    }
+
+    // Feedback to marketer/builder if conversion from their side is low
+    if (toInsert.length > 3) {
+      try {
+        const downstreamAgent = factory === "consulting" ? "marketer" : "builder";
+        const { data: returnedCount } = await supabase
+          .from("insights")
+          .select("id")
+          .eq("status", "returned")
+          .eq("opportunity_type", factory === "consulting" ? "consulting" : "foundry")
+          .gte("created_at", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString());
+
+        if ((returnedCount || []).length > 5) {
+          await supabase.from("agent_feedback").insert({
+            factory,
+            from_agent: "analyst",
+            to_agent: downstreamAgent,
+            feedback_type: "optimization",
+            content: `${(returnedCount || []).length} инсайтов вернулись за 3 дня. Я адаптирую: делаю инсайты конкретнее, добавляю поисковые запросы для нахождения ЛПР. ${downstreamAgent === "marketer" ? "Возвращай с конкретной причиной — какой информации не хватает?" : "Какие типы идей тебе проще строить? Я подстроюсь."}`,
+          } as any);
+        }
+      } catch {}
+    }
+
     return new Response(JSON.stringify({
       success: true,
       recycled,
@@ -458,6 +519,7 @@ ${brief}`;
       signals_analyzed: analyzedIds.size,
       signals_skipped: skippedSignals.length,
       insights_created: toInsert.length,
+      kpi_updated: true,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

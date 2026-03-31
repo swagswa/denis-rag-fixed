@@ -142,15 +142,37 @@ serve(async (req) => {
       .map((f: any) => `[${f.factory}/${f.feedback_type}]: ${f.content}`)
       .join("\n");
 
-    // ═══ PHASE 0.5: Загрузить KPI-цели ═══
+    // ═══ PHASE 0.5: Загрузить KPI-цели + САМООПТИМИЗАЦИЯ ═══
     const { data: kpiGoals } = await supabase
       .from("agent_kpi")
-      .select("factory, metric, target, current")
+      .select("id, factory, metric, target, current")
       .eq("active", true);
 
     const kpiContext = (kpiGoals || [])
       .map((k: any) => `[${k.factory}] ${k.metric}: ${k.current}/${k.target}`)
       .join("\n");
+
+    // Self-optimization: check if behind KPI
+    const myKpiConsulting = (kpiGoals || []).find((k: any) => k.factory === "consulting" && k.metric === "signals_per_week");
+    const myKpiFoundry = (kpiGoals || []).find((k: any) => k.factory === "foundry" && k.metric === "signals_per_week");
+    const consultingGap = myKpiConsulting ? Math.max(0, (myKpiConsulting.target || 0) - (myKpiConsulting.current || 0)) : 0;
+    const foundryGap = myKpiFoundry ? Math.max(0, (myKpiFoundry.target || 0) - (myKpiFoundry.current || 0)) : 0;
+    const totalGap = consultingGap + foundryGap;
+    const isUrgent = totalGap > 20;
+
+    let selfOptimizationPrompt = "";
+    if (totalGap > 0) {
+      selfOptimizationPrompt = `
+═══ 🚨 РЕЖИМ САМООПТИМИЗАЦИИ (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
+Consulting сигналы: осталось найти ${consultingGap} из ${myKpiConsulting?.target || "?"}
+Foundry сигналы: осталось найти ${foundryGap} из ${myKpiFoundry?.target || "?"}
+АДАПТАЦИЯ СТРАТЕГИИ:
+${isUrgent ? "- Увеличь количество сигналов до МАКСИМУМА (15)" : "- Старайся найти больше сигналов (10-12)"}
+- Расширь интерпретацию: включай СМЕЖНЫЕ отрасли и КОСВЕННЫЕ сигналы
+- Каждая вакансия, каждая новость — потенциальный сигнал. Не пропускай!
+- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Мне нужна обратная связь — какие отрасли/типы сигналов дают лучшую конверсию в инсайты? Я адаптирую поиск."
+`;
+    }
 
     // ═══ PHASE 1: Реальный скрейпинг источников ═══
     const scrapedData: { label: string; category: string; content: string }[] = [];
@@ -226,6 +248,7 @@ ${scrapedBrief}
 
 ${feedbackContext ? `\n═══ ОБРАТНАЯ СВЯЗЬ ОТ СИСТЕМЫ (учти!):\n${feedbackContext}\n` : ""}
 ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI:\n${kpiContext}\n` : ""}
+${selfOptimizationPrompt}
 
 ЗАДАЧА: Из РЕАЛЬНЫХ данных выше извлеки КОНКРЕТНЫЕ сигналы.
 
@@ -398,11 +421,44 @@ ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI:\n${kpiContext}\n` : ""}
       } as any);
     } catch (e: any) { console.error("sync_runs log error:", e); }
 
+    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    const consultingCreated = toInsert.filter((s: any) => s.potential === "consulting").length;
+    const foundryCreated = toInsert.filter((s: any) => s.potential === "foundry").length;
+
+    if (myKpiConsulting && consultingCreated > 0) {
+      await supabase.from("agent_kpi").update({ current: (myKpiConsulting.current || 0) + consultingCreated, updated_at: new Date().toISOString() }).eq("id", myKpiConsulting.id);
+    }
+    if (myKpiFoundry && foundryCreated > 0) {
+      await supabase.from("agent_kpi").update({ current: (myKpiFoundry.current || 0) + foundryCreated, updated_at: new Date().toISOString() }).eq("id", myKpiFoundry.id);
+    }
+
+    // Peer feedback to analyst if we produced many signals but few get converted
+    if (toInsert.length > 5) {
+      try {
+        const { data: recentConversion } = await supabase
+          .from("insights")
+          .select("id")
+          .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+        
+        const insightCount = (recentConversion || []).length;
+        if (insightCount < toInsert.length * 0.3) {
+          await supabase.from("agent_feedback").insert({
+            factory: "consulting",
+            from_agent: "scout",
+            to_agent: "analyst",
+            feedback_type: "optimization",
+            content: `Скаут создал ${toInsert.length} сигналов, но конверсия в инсайты низкая (${insightCount} инсайтов за неделю). Рекомендации: 1) Расширь критерии — бери больше сигналов в работу. 2) Пробуй СМЕЖНЫЕ отрасли. 3) Старые сигналы тоже могут быть актуальны при новых триггерах.`,
+          } as any);
+        }
+      } catch {}
+    }
+
     return new Response(JSON.stringify({
       success: true,
       signals_created: toInsert.length,
       sources_scraped: scrapedData.length,
       firecrawl_enabled: !!FIRECRAWL_API_KEY,
+      kpi_updated: true,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
