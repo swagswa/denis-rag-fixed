@@ -252,7 +252,7 @@ ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI:\n${kpiContext}\n` : ""}
 - Максимум 15 сигналов (8 consulting + 7 foundry)
 - География: ТОЛЬКО РФ/СНГ (для consulting) или адаптация в РФ (для foundry)
 - 🚫 FOUNDRY: НЕ генерируй похожие идеи! Каждый foundry-сигнал должен быть про РАЗНУЮ отрасль/нишу
-- 🚫 ЗАПРЕЩЕНЫ для foundry: prompt platforms, generic AI assistants, AI copywriters, ChatGPT wrappers
+- 🚫 ЗАПРЕЩЕНЫ для foundry: prompt platforms, prompt marketplace, prompt monetization, generic AI assistants, AI copywriters, ChatGPT wrappers, AI-обёртки, платформы для промтов, генераторы контента общего назначения, BetterPrompt, PromptBase и подобное
 - ✅ ХОРОШО для foundry: AI для конкретной ОТРАСЛИ (медицина, логистика, юристы, агро), автоматизация конкретного ПРОЦЕССА
 
 ФОРМАТ: строго JSON-массив:

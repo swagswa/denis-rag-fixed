@@ -74,6 +74,8 @@ serve(async (req) => {
       "монетизация промтов", "prompt monetization", "prompt store", "prompt library",
       "chatgpt обёртка", "chatgpt wrapper", "ai ассистент общего", "generic ai assistant",
       "ai копирайтер", "ai copywriter", "ai writer", "генератор контента",
+      "betterprompt", "promptbase", "промт платформа", "промт маркетплейс",
+      "prompt optimization", "prompt tuning", "prompt builder",
     ];
 
     function isBannedIdea(title: string, description: string): boolean {
@@ -341,7 +343,8 @@ ${filteredBrief}`;
           complexity: item.complexity === "low" ? "low" : "medium",
           revenue_estimate: Number(item.revenue_estimate) || 0,
           notes: compactText(detailedNotes, 1500),
-          stage: "opportunity",
+          stage: "pending_approval",
+          insight_id: insight.id,
         } as any);
 
         if (oppError) {
