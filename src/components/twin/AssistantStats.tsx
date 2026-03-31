@@ -66,7 +66,7 @@ export function AssistantStats() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-foreground">Ассистент — Статистика</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Диалоги считаются по сессиям, лиды — только из чата</p>
+        <p className="mt-1 text-sm text-muted-foreground">Диалоги считаются по сессиям, лиды — сессии, где клиент оставил контакт или попросил связаться</p>
       </div>
 
       {/* Overview */}
