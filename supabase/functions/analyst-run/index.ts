@@ -97,12 +97,22 @@ serve(async (req) => {
       .join("\n");
 
     // ═══ PHASE 1: Process NEW signals (including recycled ones) ═══
-    const { data: signals, error: signalsError } = await supabase
+    // Filter signals by factory to prevent cross-contamination
+    const isFoundry = factory === "foundry";
+    let signalsQuery = supabase
       .from("signals")
       .select("id, company_name, description, signal_type, industry, source, potential, notes")
       .eq("status", "new")
       .order("created_at", { ascending: false })
       .limit(20);
+
+    if (isFoundry) {
+      signalsQuery = signalsQuery.in("potential", ["foundry", "innovation_pilot"]);
+    } else {
+      signalsQuery = signalsQuery.or("potential.eq.consulting,potential.is.null");
+    }
+
+    const { data: signals, error: signalsError } = await signalsQuery;
 
     if (signalsError) throw signalsError;
 
