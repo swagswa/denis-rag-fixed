@@ -248,6 +248,7 @@ ${scrapedBrief}
 
 ${feedbackContext ? `\n═══ ОБРАТНАЯ СВЯЗЬ ОТ СИСТЕМЫ (учти!):\n${feedbackContext}\n` : ""}
 ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI:\n${kpiContext}\n` : ""}
+${selfOptimizationPrompt}
 
 ЗАДАЧА: Из РЕАЛЬНЫХ данных выше извлеки КОНКРЕТНЫЕ сигналы.
 
