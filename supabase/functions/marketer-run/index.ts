@@ -26,6 +26,24 @@ async function firecrawlSearch(query: string, apiKey: string): Promise<string> {
   } catch { return ""; }
 }
 
+async function firecrawlScrape(url: string, apiKey: string): Promise<string> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true, waitFor: 2000 }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return "";
+    const d = await res.json();
+    const md = d?.data?.markdown || d?.markdown || "";
+    return md.slice(0, 2500);
+  } catch { return ""; }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
