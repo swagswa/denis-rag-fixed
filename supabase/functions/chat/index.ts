@@ -325,7 +325,48 @@ serve(async (req) => {
       });
     }
 
-    return new Response(response.body, {
+    // Stream response to client while collecting full AI text for DB save
+    let aiTextCollector = "";
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+
+    const transformStream = new TransformStream({
+      transform(chunk, controller) {
+        // Pass chunk through to client
+        controller.enqueue(chunk);
+
+        // Also collect text for saving
+        const text = decoder.decode(chunk, { stream: true });
+        const lines = text.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("data: ") && !line.includes("[DONE]")) {
+            try {
+              const json = JSON.parse(line.slice(6));
+              const content = json?.choices?.[0]?.delta?.content;
+              if (content) aiTextCollector += content;
+            } catch { /* skip */ }
+          }
+        }
+      },
+      async flush() {
+        // Save conversation to DB after stream completes
+        if (supabase && lastUserMessage && aiTextCollector) {
+          try {
+            await supabase.from("conversations").insert({
+              user_message: lastUserMessage,
+              ai_message: aiTextCollector,
+              page: pageUrl,
+              session_id: sessionId,
+            });
+            console.log("Conversation saved, session:", sessionId.slice(0, 8));
+          } catch (e) {
+            console.warn("Conversation save error (non-fatal):", e);
+          }
+        }
+      },
+    });
+
+    return new Response(response.body!.pipeThrough(transformStream), {
       headers: {
         ...corsHeaders,
         "Content-Type": "text/event-stream",
