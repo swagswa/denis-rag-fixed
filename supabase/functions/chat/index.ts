@@ -18,7 +18,13 @@ type PageContext = {
 };
 
 const DEFAULT_SYSTEM_PROMPT = `Ты — AI-ассистент Дениса Матеева.
-Отвечай по-русски, кратко, по делу, без воды.`;
+Отвечай по-русски, кратко, по делу, без воды.
+
+═══ ВАЖНО: КОНТАКТНЫЕ ДАННЫЕ ═══
+Если пользователь оставляет контакт (телефон, email, @telegram, WhatsApp, имя) или просит связаться — 
+НЕ ЗАДАВАЙ ЛИШНИХ ВОПРОСОВ! Ответь коротко и тепло:
+"Спасибо! Денис свяжется с вами в ближайшее время. Если срочно — напишите ему в Telegram @deyuma."
+И ВСЁ. Не спрашивай "а что именно вас интересует" — человек уже готов общаться.`;
 
 // Quiz trigger — for first message or vague questions
 const QUIZ_TRIGGER = `
@@ -80,12 +86,60 @@ function sanitizeMessages(messages: unknown): ChatMessage[] {
 function shouldBoostLead(messages: ChatMessage[]): boolean {
   const userCount = messages.filter(m => m.role === "user").length;
   if (userCount < 3) return false;
-
-  // Check if @deyuma was already mentioned in any assistant message
   const alreadyGaveContact = messages.some(
     m => m.role === "assistant" && m.content.includes("@deyuma")
   );
   return !alreadyGaveContact;
+}
+
+// ═══ LEAD DETECTION ═══
+type DetectedLead = {
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  telegram: string | null;
+  message: string;
+};
+
+function detectContactInfo(messages: ChatMessage[]): DetectedLead | null {
+  const allUserText = messages
+    .filter(m => m.role === "user")
+    .map(m => m.content)
+    .join("\n");
+
+  // Phone patterns: +7, 8, various formats
+  const phoneMatch = allUserText.match(/(?:\+7|8)[\s\-\(]*\d{3}[\s\-\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/);
+  // Email
+  const emailMatch = allUserText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  // Telegram @username
+  const tgMatch = allUserText.match(/@([a-zA-Z0-9_]{4,32})/);
+  // "Свяжитесь", "позвоните", "перезвоните", "напишите мне"
+  const wantsContact = /свяж|позвон|перезвон|напиш.*мн|call.*me|contact.*me|связат/i.test(allUserText);
+
+  const hasContact = phoneMatch || emailMatch || tgMatch;
+
+  if (!hasContact && !wantsContact) return null;
+
+  // Try to extract name from messages
+  const namePatterns = [
+    /меня зовут\s+(\S+)/i,
+    /я\s+[-—]\s*(\S+)/i,
+    /имя\s*[:—-]\s*(\S+)/i,
+    /^(\S+)\s*[,.]?\s*(?:свяж|позвон|перезвон|напиш)/im,
+  ];
+  let name: string | null = null;
+  for (const p of namePatterns) {
+    const m = allUserText.match(p);
+    if (m) { name = m[1]; break; }
+  }
+
+  return {
+    name,
+    phone: phoneMatch ? phoneMatch[0] : null,
+    email: emailMatch ? emailMatch[0] : null,
+    telegram: tgMatch ? tgMatch[0] : null,
+    message: allUserText.slice(0, 500),
+  };
 }
 
 async function resolveSystemPrompt({
@@ -105,29 +159,34 @@ async function resolveSystemPrompt({
 
   if (supabase) {
     try {
-      const { data } = await supabase
-        .from("settings")
-        .select("system_prompt, product_prompts")
+      const productKey = detectProductContext(pageContext);
+
+      // Try assistant_prompts table first (site_id based)
+      const siteId = productKey === "general" ? "denismateev" : productKey;
+      const { data: promptData } = await supabase
+        .from("assistant_prompts")
+        .select("system_prompt")
+        .eq("site_id", siteId)
+        .eq("active", true)
         .limit(1)
-        .single() as any;
+        .single();
 
-    const productKey = detectProductContext(pageContext);
-    const productPrompt = data?.product_prompts?.[productKey];
-
-    if (typeof productPrompt === "string" && productPrompt.trim().length > 0) {
-      basePrompt = productPrompt.trim();
-    } else if (typeof data?.system_prompt === "string" && data.system_prompt.trim().length > 0) {
-      basePrompt = data.system_prompt.trim();
-    }
+      if (promptData?.system_prompt?.trim()) {
+        basePrompt = promptData.system_prompt.trim();
+      }
     } catch (e) {
-      console.warn("Settings prompt fallback:", e);
+      console.warn("Prompt fallback to default:", e);
     }
   }
 
   // Quiz for early/vague conversations
   const userMessages = messages.filter(m => m.role === "user");
   if (userMessages.length <= 1) {
-    basePrompt += QUIZ_TRIGGER;
+    // But NOT if user already gave contact info
+    const lead = detectContactInfo(messages);
+    if (!lead) {
+      basePrompt += QUIZ_TRIGGER;
+    }
   }
 
   // Auto-boost lead generation after 3+ exchanges without @deyuma
@@ -161,13 +220,13 @@ serve(async (req) => {
       });
     }
 
-    // Connect to the ORIGINAL Supabase project for settings/prompts
-    const ORIGINAL_SUPABASE_URL = "https://kuodvlyepoojqimutmvu.supabase.co";
-    const ORIGINAL_SERVICE_ROLE = Deno.env.get("ORIGINAL_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // Connect to Supabase for DB operations
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     let supabase: ReturnType<typeof createClient> | null = null;
-    if (ORIGINAL_SERVICE_ROLE) {
-      supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_SERVICE_ROLE);
+    if (supabaseKey) {
+      supabase = createClient(supabaseUrl, supabaseKey);
     }
 
     const systemPrompt = await resolveSystemPrompt({
@@ -176,6 +235,81 @@ serve(async (req) => {
       override: typeof body?.system_prompt_override === "string" ? body.system_prompt_override : undefined,
       messages,
     });
+
+    // ═══ SAVE CONVERSATION ═══
+    const sessionId = body?.sessionId || crypto.randomUUID();
+    const visitorId = body?.visitorId || sessionId;
+    const siteId = body?.pageContext?.url?.includes("foundry") ? "foundry" : "denismateev";
+
+    if (supabase) {
+      try {
+        // Upsert conversation
+        const { data: existing } = await supabase
+          .from("conversations")
+          .select("id")
+          .eq("visitor_id", sessionId)
+          .limit(1)
+          .single();
+
+        const conversationMessages = messages.map(m => ({
+          role: m.role,
+          content: m.content,
+          ts: new Date().toISOString(),
+        }));
+
+        if (existing) {
+          await supabase
+            .from("conversations")
+            .update({
+              messages: conversationMessages,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existing.id);
+        } else {
+          await supabase.from("conversations").insert({
+            visitor_id: sessionId,
+            site_id: siteId,
+            messages: conversationMessages,
+          });
+        }
+      } catch (e) {
+        console.warn("Conversation save error (non-fatal):", e);
+      }
+
+      // ═══ LEAD DETECTION & SAVE ═══
+      const lead = detectContactInfo(messages);
+      if (lead) {
+        try {
+          // Check if lead already exists for this session
+          const contactKey = lead.phone || lead.email || lead.telegram || sessionId;
+          const { data: existingLead } = await supabase
+            .from("leads")
+            .select("id")
+            .or(`message.ilike.%${contactKey}%`)
+            .limit(1);
+
+          if (!existingLead || existingLead.length === 0) {
+            const leadSummary = [
+              lead.phone ? `📞 ${lead.phone}` : null,
+              lead.email ? `📧 ${lead.email}` : null,
+              lead.telegram ? `💬 ${lead.telegram}` : null,
+            ].filter(Boolean).join(" | ");
+
+            await supabase.from("leads").insert({
+              name: lead.name,
+              message: lead.message,
+              lead_summary: leadSummary || "Запрос на связь из чата",
+              topic_guess: siteId === "foundry" ? "AI-продукт" : "Консалтинг/автоматизация",
+              status: "new",
+            });
+
+            console.log("Lead captured:", leadSummary);
+          }
+        } catch (e) {
+          console.warn("Lead save error (non-fatal):", e);
+        }
+      }
+    }
 
     const chosenModel = "openai/gpt-5.2";
 
