@@ -111,12 +111,53 @@ problem: ${i.problem || "(не указана)"}
 action_proposal: ${i.action_proposal || "(не указано)"}`)
       .join("\n\n");
 
+    // ═══ PRE-FILTER: reject banned/duplicate insights before sending to AI ═══
+    const filteredQueue: typeof queue = [];
+    for (const insight of queue) {
+      const title = (insight as any).title || "";
+      const desc = (insight as any).what_happens || "";
+      
+      if (isBannedIdea(title, desc)) {
+        console.log(`[builder] BANNED category: "${title}"`);
+        await supabase.from("insights").update({ status: "returned", notes: "Билдер: запрещённая/перенасыщенная категория (prompt platform, generic AI tool и т.п.)", updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
+        try { await supabase.from("agent_feedback").insert({ factory: "foundry", from_agent: "builder", to_agent: "analyst", feedback_type: "banned_category", content: `"${title}" — запрещённая категория. НЕ присылай: prompt platforms, generic AI tools, AI копирайтеры. Нужны НИШЕВЫЕ идеи для конкретной отрасли.` } as any); } catch {}
+        returned++;
+        continue;
+      }
+      
+      if (isSimilarToExisting(title)) {
+        console.log(`[builder] DUPLICATE idea: "${title}"`);
+        await supabase.from("insights").update({ status: "returned", notes: `Билдер: идея слишком похожа на уже существующий проект.`, updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
+        returned++;
+        continue;
+      }
+      
+      filteredQueue.push(insight);
+    }
+
+    if (filteredQueue.length === 0) {
+      return new Response(JSON.stringify({ success: true, insights_processed: queue.length, opportunities_created: 0, returned_to_analyst: returned, message: "All insights filtered out (banned/duplicate)" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Rebuild brief with filtered queue
+    const filteredBrief = filteredQueue
+      .map((i: any, idx: number) => `#${idx + 1}
+title: ${i.title}
+what_happens: ${i.what_happens}
+why_important: ${i.why_important || "(не указано)"}
+problem: ${i.problem || "(не указана)"}
+action_proposal: ${i.action_proposal || "(не указано)"}`)
+      .join("\n\n");
+
     const prompt = `Ты — AI-создатель (builder) стартапов для рынка России и СНГ. Ты СТРОИШЬ MVP AI-сервисов за 2 недели. В ОДНОГО. Без команды.
 
 МАНДАТ (ЖЁСТКИЙ — нарушение = автоматический отказ):
 - Отрасль: ${mandateIndustry}. Идеи ВНЕ этих отраслей — автоматический ОТКАЗ.
 - Регион: ${mandateRegion}
 - Если идея дублирует уже существующий проект — автоматический ОТКАЗ.
+- 🚫 ЗАПРЕЩЕНЫ: prompt platforms, generic AI assistants, AI copywriters, ChatGPT wrappers — это перенасыщенные категории.
 ${existingIdeasBrief}
 
 ТЫ ПОЛУЧАЕШЬ КВАЛИФИЦИРОВАННЫЕ ИНСАЙТЫ от Аналитика. Каждый уже прошёл фильтр.

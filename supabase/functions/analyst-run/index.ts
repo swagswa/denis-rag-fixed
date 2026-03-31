@@ -327,10 +327,9 @@ ${brief}`;
 
       if (!title || !whatHappens || !actionProposal) continue;
 
-      // Foundry insights that pass ALL criteria go directly to "qualified" for Builder
-      const insightStatus = (opportunityType === "foundry" || opportunityType === "innovation_pilot")
-        ? "qualified"
-        : "new";
+      // ALL insights start as "new" — chain-runner or manual review promotes to "qualified"
+      // This prevents low-quality foundry ideas from reaching Builder without review
+      const insightStatus = "new";
 
       toInsert.push({
         signal_id: signal.id,
