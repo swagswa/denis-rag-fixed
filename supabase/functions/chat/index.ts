@@ -62,7 +62,7 @@ async function resolveSystemPrompt({
   override,
   messages,
 }: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: ReturnType<typeof createClient> | null;
   pageContext?: PageContext;
   override?: string;
   messages: ChatMessage[];
