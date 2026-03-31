@@ -5,11 +5,11 @@
 -- Включить расширение если не включено
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
--- ═══ Consulting Factory: каждые 30 минут ═══
+-- ═══ Consulting Factory: каждые 15 минут ═══
 -- scout → analyst → marketer (последовательно через chain-runner)
 SELECT cron.schedule(
   'consulting-chain',
-  '*/30 * * * *',  -- каждые 30 минут
+  '*/15 * * * *',  -- каждые 15 минут
   $$
   SELECT net.http_post(
     url := current_setting('app.settings.supabase_url') || '/functions/v1/chain-runner',
