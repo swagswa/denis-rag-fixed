@@ -244,7 +244,7 @@ ${existingIdeasBrief}
 3) demand_proof — ОБЯЗАТЕЛЬНОЕ поле. Без конкретных доказательств спроса — НЕ ПРИНИМАЙ.
 4) mvp_plan — КОНКРЕТНЫЙ по дням.
 5) Верни строго JSON-массив без markdown.
-
+${selfOptimizationPrompt}
 ИНСАЙТЫ:
 ${filteredBrief}`;
 
