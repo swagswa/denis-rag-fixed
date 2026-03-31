@@ -116,6 +116,31 @@ serve(async (req) => {
 
     if (signalsError) throw signalsError;
 
+    // ═══ PHASE 1.5: Load HISTORICAL signals as context for cross-matching ═══
+    // Old signals can become relevant when new events/triggers appear
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    let histQuery = supabase
+      .from("signals")
+      .select("company_name, description, signal_type, industry, source, potential, created_at")
+      .eq("status", "analyzed")
+      .gte("created_at", sevenDaysAgo)
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    if (isFoundry) {
+      histQuery = histQuery.in("potential", ["foundry", "innovation_pilot"]);
+    } else {
+      histQuery = histQuery.or("potential.eq.consulting,potential.is.null");
+    }
+
+    const { data: historicalSignals } = await histQuery;
+
+    const historicalContext = (historicalSignals || []).length > 0
+      ? (historicalSignals || [])
+          .map((s: any, i: number) => `[H${i + 1}] ${s.signal_type} | ${s.industry || "?"} | ${s.company_name || "—"} | ${(s.description || "").slice(0, 200)}`)
+          .join("\n")
+      : "";
+
     if (!signals || signals.length === 0) {
       return new Response(JSON.stringify({ success: true, recycled, message: "No new signals to analyze" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
