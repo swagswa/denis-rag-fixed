@@ -418,38 +418,8 @@ ${brief}`;
       const { error: insertError } = await supabase.from("insights").insert(toInsert);
       if (insertError) throw insertError;
 
-      // ═══ Auto-save insights + signals to knowledge base ═══
-      const kbDocs = toInsert.map((ins: any) => {
-        const signal = queue.find((s) => s.id === ins.signal_id);
-        const content = [
-          `# ${ins.title}`,
-          `Тип: ${ins.opportunity_type}`,
-          ins.company_name ? `Компания: ${ins.company_name}` : null,
-          `\n## Что происходит\n${ins.what_happens}`,
-          ins.why_important ? `\n## Почему важно\n${ins.why_important}` : null,
-          ins.problem ? `\n## Проблема/Боль\n${ins.problem}` : null,
-          ins.action_proposal ? `\n## Предложение\n${ins.action_proposal}` : null,
-          signal ? `\n## Источник сигнала\nТип: ${signal.signal_type}\nИндустрия: ${signal.industry || "н/д"}\nИсточник: ${signal.source || "н/д"}\nОписание: ${signal.description}` : null,
-        ].filter(Boolean).join("\n");
-
-        return {
-          title: `[Insight] ${ins.title}`,
-          content,
-          source_type: "agent",
-          source_name: "analyst-run",
-          topic: ins.opportunity_type,
-          metadata_json: {
-            insight_signal_id: ins.signal_id,
-            opportunity_type: ins.opportunity_type,
-            company_name: ins.company_name,
-            auto_saved: true,
-          },
-        };
-      });
-
-      const { error: kbError } = await supabase.from("documents").insert(kbDocs);
-      if (kbError) console.error("KB save error (non-fatal):", kbError);
-    }
+      // Log insights created
+      console.log(`Analyst created ${toInsert.length} insights from ${analyzedIds.size} signals`);
 
     const skippedSignals = queue.filter((signal) => !analyzedIds.has(signal.id));
 

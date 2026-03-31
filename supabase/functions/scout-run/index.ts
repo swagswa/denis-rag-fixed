@@ -363,11 +363,8 @@ ${selfOptimizationPrompt}
       const potential = item.potential === "foundry" ? "foundry" : "consulting";
       const companyName = compactText(item.company_name, 120) || null;
 
-      // 🔴 CONSULTING сигналы БЕЗ company_name — отбрасываем
-      if (potential === "consulting" && !companyName) {
-        console.log(`Skipped consulting signal without company_name: ${desc.slice(0, 80)}`);
-        continue;
-      }
+      // Скаут ищет ТРЕНДЫ — company_name необязателен.
+      // Конкретные компании найдёт Аналитик.
 
       toInsert.push({
         company_name: companyName,
