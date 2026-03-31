@@ -421,11 +421,44 @@ ${selfOptimizationPrompt}
       } as any);
     } catch (e: any) { console.error("sync_runs log error:", e); }
 
+    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    const consultingCreated = toInsert.filter((s: any) => s.potential === "consulting").length;
+    const foundryCreated = toInsert.filter((s: any) => s.potential === "foundry").length;
+
+    if (myKpiConsulting && consultingCreated > 0) {
+      await supabase.from("agent_kpi").update({ current: (myKpiConsulting.current || 0) + consultingCreated, updated_at: new Date().toISOString() }).eq("id", myKpiConsulting.id);
+    }
+    if (myKpiFoundry && foundryCreated > 0) {
+      await supabase.from("agent_kpi").update({ current: (myKpiFoundry.current || 0) + foundryCreated, updated_at: new Date().toISOString() }).eq("id", myKpiFoundry.id);
+    }
+
+    // Peer feedback to analyst if we produced many signals but few get converted
+    if (toInsert.length > 5) {
+      try {
+        const { data: recentConversion } = await supabase
+          .from("insights")
+          .select("id")
+          .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+        
+        const insightCount = (recentConversion || []).length;
+        if (insightCount < toInsert.length * 0.3) {
+          await supabase.from("agent_feedback").insert({
+            factory: "consulting",
+            from_agent: "scout",
+            to_agent: "analyst",
+            feedback_type: "optimization",
+            content: `Скаут создал ${toInsert.length} сигналов, но конверсия в инсайты низкая (${insightCount} инсайтов за неделю). Рекомендации: 1) Расширь критерии — бери больше сигналов в работу. 2) Пробуй СМЕЖНЫЕ отрасли. 3) Старые сигналы тоже могут быть актуальны при новых триггерах.`,
+          } as any);
+        }
+      } catch {}
+    }
+
     return new Response(JSON.stringify({
       success: true,
       signals_created: toInsert.length,
       sources_scraped: scrapedData.length,
       firecrawl_enabled: !!FIRECRAWL_API_KEY,
+      kpi_updated: true,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
