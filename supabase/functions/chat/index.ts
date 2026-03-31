@@ -237,19 +237,12 @@ serve(async (req) => {
     });
 
     // ═══ SAVE CONVERSATION ═══
-    // Save each user→assistant exchange as a separate row with user_message, ai_message, page, session_id
-    // (matches the format the dashboard expects)
     const sessionId = body?.sessionId || crypto.randomUUID();
     const pageUrl = body?.pageContext?.url || null;
-
-    // We'll save the conversation AFTER getting the AI response
-    // For now, just extract the last user message
     const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
-      } catch (e) {
-        console.warn("Lead save error (non-fatal):", e);
-      }
 
-      // ═══ LEAD DETECTION & SAVE ═══
+    // ═══ LEAD DETECTION & SAVE ═══
+    if (supabase) {
       const lead = detectContactInfo(messages);
       if (lead) {
         try {
