@@ -258,7 +258,7 @@ serve(async (req) => {
             ].filter(Boolean).join(" | ");
 
             const siteId = pageUrl?.includes("foundry") ? "foundry" : "denismateev";
-            await supabase.from("leads").insert({
+            const { error: leadErr } = await supabase.from("leads").insert({
               name: lead.name,
               message: lead.message,
               lead_summary: leadSummary || "Запрос на связь из чата",
@@ -266,7 +266,11 @@ serve(async (req) => {
               status: "new",
             });
 
-            console.log("Lead captured:", leadSummary);
+            if (leadErr) {
+              console.warn("Lead insert error:", leadErr.message);
+            } else {
+              console.log("Lead captured:", leadSummary);
+            }
           }
         } catch (e) {
           console.warn("Lead save error (non-fatal):", e);
