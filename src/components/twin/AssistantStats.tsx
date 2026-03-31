@@ -19,14 +19,21 @@ export function AssistantStats() {
 
   useEffect(() => {
     const load = async () => {
-      const [chatsRes, leadsRes] = await Promise.all([
-        supabase.from('conversations').select('id, page, session_id, created_at'),
-        supabase.from('leads').select('id, created_at'),
-      ])
+      const { data: chats } = await supabase
+        .from('conversations')
+        .select('id, page, session_id, created_at, user_message')
 
-      const chats = chatsRes.data || []
-      const leads = leadsRes.data || []
-      setTotalLeads(leads.length)
+      const allChats = chats || []
+
+      // Count unique sessions where client left contact info or asked to connect
+      const contactPattern = /(\+7|8[\s\-\(]\d)|@[a-zA-Z0-9_]{4,}|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|свяж|позвон|перезвон|напиш.*мн|связат|call.*me|contact/i
+      const leadSessions = new Set(
+        allChats
+          .filter(c => c.user_message && contactPattern.test(c.user_message))
+          .map(c => c.session_id)
+          .filter(Boolean)
+      )
+      setTotalLeads(leadSessions.size)
 
       const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0)
       const todayStr = todayDate.toISOString()
