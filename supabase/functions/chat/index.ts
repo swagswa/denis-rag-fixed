@@ -246,14 +246,13 @@ serve(async (req) => {
     // For now, just extract the last user message
     const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
       } catch (e) {
-        console.warn("Conversation save error (non-fatal):", e);
+        console.warn("Lead save error (non-fatal):", e);
       }
 
       // ═══ LEAD DETECTION & SAVE ═══
       const lead = detectContactInfo(messages);
       if (lead) {
         try {
-          // Check if lead already exists for this session
           const contactKey = lead.phone || lead.email || lead.telegram || sessionId;
           const { data: existingLead } = await supabase
             .from("leads")
@@ -268,6 +267,7 @@ serve(async (req) => {
               lead.telegram ? `💬 ${lead.telegram}` : null,
             ].filter(Boolean).join(" | ");
 
+            const siteId = pageUrl?.includes("foundry") ? "foundry" : "denismateev";
             await supabase.from("leads").insert({
               name: lead.name,
               message: lead.message,
