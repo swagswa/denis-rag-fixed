@@ -80,8 +80,8 @@ export function TwinDashboard() {
         supabase.from('startup_opportunities').select('id, stage, idea, problem, solution, market, monetization, notes, created_at, revenue_estimate, source'),
         supabase.from('startup_opportunities').select('id').gte('created_at', twelveHoursAgo),
         supabase.from('factory_flows').select('id, factory, name, status, last_run_at, last_run_result') as any,
-        supabase.from('conversations').select('id, page, session_id, created_at'),
-        supabase.from('leads').select('id, session_id').not('session_id', 'is', null),
+        supabase.from('conversations').select('id, page, session_id, created_at, user_message'),
+        supabase.from('leads').select('id, created_at'),
         supabase.from('agent_feedback' as any).select('factory, content, feedback_type').eq('from_agent', 'chain-runner').eq('resolved', false),
         supabase.from('sync_runs' as any).select('id, source, status, items_synced, started_at, finished_at').order('started_at', { ascending: false }).limit(10),
         supabase.from('agent_feedback' as any).select('id, factory, content, feedback_type, created_at').eq('feedback_type', 'filter_change_request').eq('resolved', false),
@@ -179,17 +179,22 @@ export function TwinDashboard() {
 
       // ═══ CHAT STATS ═══
       const chats = chatsRes.data || []
-      const chatLeadRows = chatLeadsRes.data || []
+      const contactPattern = /(\+7|8[\s\-\(]\d)|@[a-zA-Z0-9_]{4,}|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|свяж|позвон|перезвон|напиш.*мн|связат|call.*me|contact/i
       const chatSessionIds = new Set(chats.map((c: any) => c.session_id).filter(Boolean))
-      const realChatLeads = chatLeadRows.filter((l: any) => l.session_id && chatSessionIds.has(l.session_id))
+      const leadSessions = new Set(
+        chats
+          .filter((c: any) => c.user_message && contactPattern.test(c.user_message))
+          .map((c: any) => c.session_id)
+          .filter(Boolean)
+      )
       const todayD = new Date(); todayD.setHours(0, 0, 0, 0)
       const todaySessions = new Set(chats.filter((c: any) => c.created_at >= todayD.toISOString()).map((c: any) => c.session_id).filter(Boolean))
 
       setChatStats({
         total: chatSessionIds.size,
         today: todaySessions.size,
-        chatLeads: realChatLeads.length,
-        conversionRate: chatSessionIds.size > 0 ? ((realChatLeads.length / chatSessionIds.size) * 100).toFixed(1) : '0',
+        chatLeads: leadSessions.size,
+        conversionRate: chatSessionIds.size > 0 ? ((leadSessions.size / chatSessionIds.size) * 100).toFixed(1) : '0',
       })
     } catch (err) {
       console.error('[Dashboard] load error:', err)
