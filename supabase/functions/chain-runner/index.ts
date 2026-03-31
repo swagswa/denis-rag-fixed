@@ -32,14 +32,24 @@ serve(async (req) => {
         try {
           const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
           const sb = createClient(SUPABASE_URL, SERVICE_KEY);
-          const { data: newFoundry, error: qErr } = await sb
-            .from("insights")
-            .update({ status: "qualified", updated_at: new Date().toISOString() })
-            .eq("status", "new")
-            .in("opportunity_type", ["foundry", "innovation_pilot"])
-            .select("id");
-          const count = newFoundry?.length || 0;
-          console.log(`[foundry] Qualified ${count} insights for builder${qErr ? ` (error: ${qErr.message})` : ""}`);
+          
+          // Retry logic — insights may not be committed yet
+          let count = 0;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await new Promise((r) => setTimeout(r, 3000)); // wait 3s between attempts
+            const { data: newFoundry, error: qErr } = await sb
+              .from("insights")
+              .update({ status: "qualified", updated_at: new Date().toISOString() })
+              .eq("status", "new")
+              .in("opportunity_type", ["foundry", "innovation_pilot"])
+              .select("id");
+            count = newFoundry?.length || 0;
+            if (qErr) console.error(`[foundry] qualify attempt ${attempt + 1} error:`, qErr.message);
+            if (count > 0) break;
+            console.log(`[foundry] qualify attempt ${attempt + 1}: found ${count}, retrying...`);
+          }
+          
+          console.log(`[foundry] Qualified ${count} insights for builder`);
           results.push({ fn, status: 200, data: { qualified: count } });
         } catch (e: any) {
           console.error(`[foundry] qualify error:`, e.message);
