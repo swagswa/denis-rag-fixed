@@ -104,7 +104,7 @@ serve(async (req) => {
       .select("id, company_name, description, signal_type, industry, source, potential, notes")
       .eq("status", "new")
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(30);
 
     if (isFoundry) {
       signalsQuery = signalsQuery.in("potential", ["foundry", "innovation_pilot"]);
