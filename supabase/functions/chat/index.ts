@@ -222,12 +222,9 @@ serve(async (req) => {
 
     // Connect to ORIGINAL Supabase (NOT Lovable Cloud) for DB operations
     const ORIGINAL_SUPABASE_URL = "https://kuodvlyepoojqimutmvu.supabase.co";
-    const ORIGINAL_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const ORIGINAL_ANON_KEY = "sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS";
 
-    let supabase: ReturnType<typeof createClient> | null = null;
-    if (ORIGINAL_SERVICE_ROLE) {
-      supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_SERVICE_ROLE);
-    }
+    const supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_ANON_KEY);
 
     const systemPrompt = await resolveSystemPrompt({
       supabase,
@@ -238,49 +235,14 @@ serve(async (req) => {
 
     // ═══ SAVE CONVERSATION ═══
     const sessionId = body?.sessionId || crypto.randomUUID();
-    const visitorId = body?.visitorId || sessionId;
-    const siteId = body?.pageContext?.url?.includes("foundry") ? "foundry" : "denismateev";
+    const pageUrl = body?.pageContext?.url || null;
+    const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
 
+    // ═══ LEAD DETECTION & SAVE ═══
     if (supabase) {
-      try {
-        // Upsert conversation
-        const { data: existing } = await supabase
-          .from("conversations")
-          .select("id")
-          .eq("visitor_id", sessionId)
-          .limit(1)
-          .single();
-
-        const conversationMessages = messages.map(m => ({
-          role: m.role,
-          content: m.content,
-          ts: new Date().toISOString(),
-        }));
-
-        if (existing) {
-          await supabase
-            .from("conversations")
-            .update({
-              messages: conversationMessages,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", existing.id);
-        } else {
-          await supabase.from("conversations").insert({
-            visitor_id: sessionId,
-            site_id: siteId,
-            messages: conversationMessages,
-          });
-        }
-      } catch (e) {
-        console.warn("Conversation save error (non-fatal):", e);
-      }
-
-      // ═══ LEAD DETECTION & SAVE ═══
       const lead = detectContactInfo(messages);
       if (lead) {
         try {
-          // Check if lead already exists for this session
           const contactKey = lead.phone || lead.email || lead.telegram || sessionId;
           const { data: existingLead } = await supabase
             .from("leads")
@@ -295,7 +257,8 @@ serve(async (req) => {
               lead.telegram ? `💬 ${lead.telegram}` : null,
             ].filter(Boolean).join(" | ");
 
-            await supabase.from("leads").insert({
+            const siteId = pageUrl?.includes("foundry") ? "foundry" : "denismateev";
+            const { error: leadErr } = await supabase.from("leads").insert({
               name: lead.name,
               message: lead.message,
               lead_summary: leadSummary || "Запрос на связь из чата",
@@ -303,7 +266,11 @@ serve(async (req) => {
               status: "new",
             });
 
-            console.log("Lead captured:", leadSummary);
+            if (leadErr) {
+              console.warn("Lead insert error:", leadErr.message);
+            } else {
+              console.log("Lead captured:", leadSummary);
+            }
           }
         } catch (e) {
           console.warn("Lead save error (non-fatal):", e);
@@ -352,7 +319,52 @@ serve(async (req) => {
       });
     }
 
-    return new Response(response.body, {
+    // Stream response to client while collecting full AI text for DB save
+    let aiTextCollector = "";
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+
+    const transformStream = new TransformStream({
+      transform(chunk, controller) {
+        // Pass chunk through to client
+        controller.enqueue(chunk);
+
+        // Also collect text for saving
+        const text = decoder.decode(chunk, { stream: true });
+        const lines = text.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("data: ") && !line.includes("[DONE]")) {
+            try {
+              const json = JSON.parse(line.slice(6));
+              const content = json?.choices?.[0]?.delta?.content;
+              if (content) aiTextCollector += content;
+            } catch { /* skip */ }
+          }
+        }
+      },
+      async flush() {
+        // Save conversation to DB after stream completes
+        if (supabase && lastUserMessage && aiTextCollector) {
+          try {
+            const { error: convErr } = await supabase.from("conversations").insert({
+              user_message: lastUserMessage,
+              ai_message: aiTextCollector,
+              page: pageUrl,
+              session_id: sessionId,
+            });
+            if (convErr) {
+              console.warn("Conversation insert error:", convErr.message);
+            } else {
+              console.log("Conversation saved, session:", sessionId.slice(0, 8));
+            }
+          } catch (e) {
+            console.warn("Conversation save error (non-fatal):", e);
+          }
+        }
+      },
+    });
+
+    return new Response(response.body!.pipeThrough(transformStream), {
       headers: {
         ...corsHeaders,
         "Content-Type": "text/event-stream",
