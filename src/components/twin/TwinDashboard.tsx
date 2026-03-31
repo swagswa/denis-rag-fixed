@@ -415,7 +415,6 @@ function FunnelCard({ title, subtitle, stages, flow, onToggleFlow }: {
                     <span className={`text-lg font-bold ${behind ? 'text-red-400' : ahead ? 'text-emerald-400' : 'text-slate-100'}`}>
                       {count}
                     </span>
-                    <span className="text-[10px] text-slate-600">/ {stage.target}</span>
                     {behind && <TrendingDown className="h-3 w-3 text-red-400" />}
                     {ahead && <TrendingUp className="h-3 w-3 text-emerald-400" />}
                   </div>
