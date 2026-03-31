@@ -222,12 +222,9 @@ serve(async (req) => {
 
     // Connect to ORIGINAL Supabase (NOT Lovable Cloud) for DB operations
     const ORIGINAL_SUPABASE_URL = "https://kuodvlyepoojqimutmvu.supabase.co";
-    const ORIGINAL_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const ORIGINAL_ANON_KEY = "sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS";
 
-    let supabase: ReturnType<typeof createClient> | null = null;
-    if (ORIGINAL_SERVICE_ROLE) {
-      supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_SERVICE_ROLE);
-    }
+    const supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_ANON_KEY);
 
     const systemPrompt = await resolveSystemPrompt({
       supabase,
