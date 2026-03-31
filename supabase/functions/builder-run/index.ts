@@ -137,6 +137,8 @@ action_proposal: ${i.action_proposal || "(не указано)"}`)
       .join("\n\n");
 
     // ═══ PRE-FILTER: reject banned/duplicate insights before sending to AI ═══
+    let returned = 0;
+    let oppsCreated = 0;
     const filteredQueue: typeof queue = [];
     for (const insight of queue) {
       const title = (insight as any).title || "";
