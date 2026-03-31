@@ -70,7 +70,7 @@ serve(async (req) => {
     const allIds = allInsights.map((i: any) => i.id);
     const { data: existing } = await supabase.from("leads").select("topic_guess").in("topic_guess", allIds.map((id: string) => `insight:${id}`));
     const done = new Set((existing || []).map((l: any) => l.topic_guess));
-    const queue = allInsights.filter((i: any) => !done.has(`insight:${i.id}`)).slice(0, 3);
+    const queue = allInsights.filter((i: any) => !done.has(`insight:${i.id}`)).slice(0, 5);
     if (queue.length === 0) {
       return new Response(JSON.stringify({ success: true, message: "All insights already processed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
