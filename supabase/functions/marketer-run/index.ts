@@ -26,6 +26,24 @@ async function firecrawlSearch(query: string, apiKey: string): Promise<string> {
   } catch { return ""; }
 }
 
+async function firecrawlScrape(url: string, apiKey: string): Promise<string> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true, waitFor: 2000 }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return "";
+    const d = await res.json();
+    const md = d?.data?.markdown || d?.markdown || "";
+    return md.slice(0, 2500);
+  } catch { return ""; }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -90,12 +108,35 @@ serve(async (req) => {
     const allSearchResults = await Promise.all(searchPromises);
 
     // Pair results: [companyResults, contactResults] per insight
-    const pairedResults: { companies: string; contacts: string }[] = [];
+    const pairedResults: { companies: string; contacts: string; websiteContent: string }[] = [];
     for (let i = 0; i < queue.length; i++) {
       pairedResults.push({
         companies: allSearchResults[i * 2] || "",
         contacts: allSearchResults[i * 2 + 1] || "",
+        websiteContent: "",
       });
+    }
+
+    // ═══ PHASE 2.5: Scrape company websites for personalized outreach ═══
+    if (FIRECRAWL_API_KEY) {
+      const scrapePromises: Promise<void>[] = [];
+      for (let i = 0; i < pairedResults.length; i++) {
+        const companyLines = pairedResults[i].companies;
+        // Extract first URL from search results
+        const urlMatch = companyLines.match(/https?:\/\/[^\s|]+/);
+        if (urlMatch) {
+          const url = urlMatch[0].replace(/[,;)}\]]+$/, "");
+          scrapePromises.push(
+            firecrawlScrape(url, FIRECRAWL_API_KEY).then((content) => {
+              pairedResults[i].websiteContent = content;
+            })
+          );
+        }
+      }
+      if (scrapePromises.length > 0) {
+        await Promise.allSettled(scrapePromises);
+        console.log(`[marketer] Scraped ${scrapePromises.length} company websites`);
+      }
     }
 
     // ═══ SINGLE GPT CALL for all insights ═══
@@ -109,7 +150,11 @@ action_proposal: ${i.action_proposal || "—"}
 ${pairedResults[idx].companies || "(ничего не найдено)"}
 
 НАЙДЕННЫЕ КОНТАКТЫ (поиск):
-${pairedResults[idx].contacts || "(ничего не найдено)"}`).join("\n\n---\n\n");
+${pairedResults[idx].contacts || "(ничего не найдено)"}
+${pairedResults[idx].websiteContent ? `
+КОНТЕНТ САЙТА КОМПАНИИ (спарсен автоматически):
+${pairedResults[idx].websiteContent.slice(0, 1500)}
+ИНСАЙТЫ ДЛЯ ПЕРСОНАЛИЗАЦИИ: используй конкретные детали с сайта (продукты, услуги, технологии, проблемы) для ПЕРСОНАЛИЗИРОВАННОГО обращения. Например: "Увидел на вашем сайте, что вы работаете с X — хотим предложить Y".` : ""}`).join("\n\n---\n\n");
 
     const prompt = `Ты — маркетолог Дениса Матеева. Денис помогает компаниям внедрять AI и автоматизацию.
 
@@ -119,10 +164,11 @@ ${pairedResults[idx].contacts || "(ничего не найдено)"}`).join("\
 - Компания должна быть РЕАЛЬНОЙ — из результатов поиска, НЕ выдуманной.
 
 🚨 КРИТИЧЕСКИ ВАЖНО — ЗАПРЕТ НА ВЫДУМЫВАНИЕ:
-Ты ОБЯЗАН использовать ТОЛЬКО данные из "НАЙДЕННЫЕ КОМПАНИИ" и "НАЙДЕННЫЕ КОНТАКТЫ".
+Ты ОБЯЗАН использовать ТОЛЬКО данные из "НАЙДЕННЫЕ КОМПАНИИ", "НАЙДЕННЫЕ КОНТАКТЫ" и "КОНТЕНТ САЙТА КОМПАНИИ".
 ❌ ЗАПРЕЩЕНО: выдумывать имена, фамилии, email, telegram, linkedin — ДАЖЕ если они "звучат реалистично"
 ❌ ЗАПРЕЩЕНО: подставлять типичные имена (Иван Петров, Алексей Смирнов) если их НЕТ в результатах поиска
 ✅ РАЗРЕШЕНО: использовать ТОЛЬКО имена, контакты и компании, которые БУКВАЛЬНО присутствуют в тексте поиска выше
+✅ БОНУС: если есть "КОНТЕНТ САЙТА КОМПАНИИ" — используй КОНКРЕТНЫЕ детали с сайта для персонализации outreach (их продукты, технологии, проблемы, новости). Это СИЛЬНО повышает конверсию!
 
 ПРОВЕРКА ПЕРЕД ОТВЕТОМ:
 Для каждого лида спроси себя:

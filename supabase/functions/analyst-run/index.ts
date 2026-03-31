@@ -116,6 +116,31 @@ serve(async (req) => {
 
     if (signalsError) throw signalsError;
 
+    // ═══ PHASE 1.5: Load HISTORICAL signals as context for cross-matching ═══
+    // Old signals can become relevant when new events/triggers appear
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    let histQuery = supabase
+      .from("signals")
+      .select("company_name, description, signal_type, industry, source, potential, created_at")
+      .eq("status", "analyzed")
+      .gte("created_at", sevenDaysAgo)
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    if (isFoundry) {
+      histQuery = histQuery.in("potential", ["foundry", "innovation_pilot"]);
+    } else {
+      histQuery = histQuery.or("potential.eq.consulting,potential.is.null");
+    }
+
+    const { data: historicalSignals } = await histQuery;
+
+    const historicalContext = (historicalSignals || []).length > 0
+      ? (historicalSignals || [])
+          .map((s: any, i: number) => `[H${i + 1}] ${s.signal_type} | ${s.industry || "?"} | ${s.company_name || "—"} | ${(s.description || "").slice(0, 200)}`)
+          .join("\n")
+      : "";
+
     if (!signals || signals.length === 0) {
       return new Response(JSON.stringify({ success: true, recycled, message: "No new signals to analyze" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -280,6 +305,17 @@ serve(async (req) => {
 
 ${feedbackContext ? `\n═══ ОБРАТНАЯ СВЯЗЬ ОТ МАРКЕТОЛОГА/БИЛДЕРА (учти при анализе!):\n${feedbackContext}\nАдаптируй свои инсайты с учётом этой обратной связи!\n` : ""}
 ${kpiContext ? `\n═══ ТЕКУЩИЕ KPI (если отстаём — будь менее строгим фильтром):\n${kpiContext}\n` : ""}
+${historicalContext ? `\n═══ ИСТОРИЧЕСКИЕ СИГНАЛЫ (за последние 7 дней) ═══
+Эти сигналы УЖЕ были обработаны ранее, НО могут снова стать актуальными!
+Если новый сигнал создаёт ТРИГГЕР, который делает старый сигнал релевантным — используй их ВМЕСТЕ для создания более сильного инсайта.
+Примеры кросс-мэтчинга:
+- Новый закон → старый сигнал о компании, которой теперь нужно срочно адаптироваться
+- Новый технологический тренд → старый сигнал о компании с болью, которую этот тренд решает
+- Уход вендора → старый сигнал о компании, которая использовала этого вендора
+НЕ создавай инсайт ТОЛЬКО из исторического сигнала без нового триггера!
+
+${historicalContext}
+\n` : ""}
 СИГНАЛЫ:
 ${brief}`;
 
