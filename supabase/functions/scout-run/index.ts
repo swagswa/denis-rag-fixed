@@ -387,20 +387,8 @@ ${selfOptimizationPrompt}
     }
 
     // ═══ PHASE 4: Логируем запуск ═══
-    try {
-      await supabase.from("sync_runs").insert({
-        function_name: "scout-run",
-        status: "ok",
-        items_found: toInsert.length,
-        metadata: {
-          triggered_by: triggeredBy,
-          sources_scraped: scrapedData.length,
-          firecrawl_enabled: !!FIRECRAWL_API_KEY,
-          signals_consulting: toInsert.filter((s) => s.potential === "consulting").length,
-          signals_foundry: toInsert.filter((s) => s.potential === "foundry").length,
-        },
-      } as any);
-    } catch (e: any) { console.error("sync_runs log error:", e); }
+    // ═══ PHASE 4: Логируем результат ═══
+    console.log(`Scout completed: ${toInsert.length} signals (${toInsert.filter((s: any) => s.potential === "consulting").length} consulting, ${toInsert.filter((s: any) => s.potential === "foundry").length} foundry)`);
 
     // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
     const consultingCreated = toInsert.filter((s: any) => s.potential === "consulting").length;
