@@ -63,10 +63,32 @@ serve(async (req) => {
       .from("startup_opportunities")
       .select("insight_id, idea")
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
 
     const alreadyProcessed = new Set((existingOpps || []).filter((o: any) => o.insight_id).map((o: any) => o.insight_id));
     const existingIdeas = (existingOpps || []).map((o: any) => (o.idea || "").toLowerCase()).filter(Boolean);
+
+    // ═══ BANNED CATEGORIES — auto-reject insights about oversaturated niches ═══
+    const BANNED_KEYWORDS = [
+      "prompt marketplace", "платформа для промтов", "prompt engineering", "prompt platform",
+      "монетизация промтов", "prompt monetization", "prompt store", "prompt library",
+      "chatgpt обёртка", "chatgpt wrapper", "ai ассистент общего", "generic ai assistant",
+      "ai копирайтер", "ai copywriter", "ai writer", "генератор контента",
+    ];
+
+    function isBannedIdea(title: string, description: string): boolean {
+      const text = `${title} ${description}`.toLowerCase();
+      return BANNED_KEYWORDS.some(kw => text.includes(kw));
+    }
+
+    function isSimilarToExisting(newIdea: string): boolean {
+      const words = newIdea.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      if (words.length === 0) return false;
+      return existingIdeas.some(existing => {
+        const matchCount = words.filter(w => existing.includes(w)).length;
+        return matchCount / words.length > 0.5; // >50% word overlap = duplicate
+      });
+    }
     const queue = insights.filter((i: any) => !alreadyProcessed.has(i.id));
 
     if (queue.length === 0) {
