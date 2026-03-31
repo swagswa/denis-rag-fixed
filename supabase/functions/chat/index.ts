@@ -87,8 +87,9 @@ async function resolveSystemPrompt({
     } else if (typeof data?.system_prompt === "string" && data.system_prompt.trim().length > 0) {
       basePrompt = data.system_prompt.trim();
     }
-  } catch (e) {
-    console.warn("Settings prompt fallback:", e);
+    } catch (e) {
+      console.warn("Settings prompt fallback:", e);
+    }
   }
 
   // Auto-boost lead generation after 3+ exchanges without @deyuma
