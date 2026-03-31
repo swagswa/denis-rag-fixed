@@ -118,7 +118,7 @@ export default function App() {
       case 'consulting-closer': return <TwinLeads />
       case 'foundry-scout': return <TwinSignals factory="foundry" />
       case 'foundry-analyst': return <TwinInsights factory="foundry" role="analyst" />
-      case 'foundry-builder': return <TwinInsights factory="foundry" role="builder" />
+      case 'foundry-builder': return <TwinOpportunities />
       // Ассистент
       case 'assistant-stats': return <AssistantStats />
       case 'assistant-dialogs': return <AssistantDialogs />

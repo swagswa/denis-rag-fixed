@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench, ArrowDown, TrendingUp, TrendingDown } from 'lucide-react'
+import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench, ArrowDown, TrendingUp, TrendingDown, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Flow {
@@ -15,18 +15,20 @@ interface Flow {
 interface FunnelStage {
   label: string
   icon: any
-  count: number
+  recent: number
+  total: number
   target: number
   conversion: string
 }
 
 interface PendingItem {
   id: string
-  type: 'lead' | 'opportunity'
+  type: 'lead' | 'opportunity' | 'filter_change'
   title: string
   approvalRequest: string
   details: string
   date: string
+  factory?: string
 }
 
 interface ChatStats {
@@ -62,35 +64,45 @@ export function TwinDashboard() {
     monthStart.setHours(0, 0, 0, 0)
     const monthISO = monthStart.toISOString()
 
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString()
+
     const dayOfMonth = new Date().getDate()
     const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()
     const progress = dayOfMonth / daysInMonth
 
     try {
-      const [signalsRes, insightsRes, leadsRes, oppsRes, flowsRes, chatsRes, chatLeadsRes, feedbackRes, runsRes] = await Promise.all([
+      const [signalsRes, signalsRecentRes, insightsRes, insightsRecentRes, leadsRes, oppsRes, oppsRecentRes, flowsRes, chatsRes, chatLeadsRes, feedbackRes, runsRes, filterReqRes] = await Promise.all([
         supabase.from('signals').select('id, status, potential').gte('created_at', monthISO),
+        supabase.from('signals').select('id, potential').gte('created_at', twelveHoursAgo),
         supabase.from('insights').select('id, status, opportunity_type').gte('created_at', monthISO),
+        supabase.from('insights').select('id, opportunity_type').gte('created_at', twelveHoursAgo),
         supabase.from('leads').select('id, status, company_name, name, message, lead_summary, role, created_at, session_id, topic_guess'),
         supabase.from('startup_opportunities').select('id, stage, idea, problem, solution, market, monetization, notes, created_at, revenue_estimate, source'),
+        supabase.from('startup_opportunities').select('id').gte('created_at', twelveHoursAgo),
         supabase.from('factory_flows').select('id, factory, name, status, last_run_at, last_run_result') as any,
         supabase.from('conversations').select('id, page, session_id, created_at'),
         supabase.from('leads').select('id, session_id').not('session_id', 'is', null),
         supabase.from('agent_feedback' as any).select('factory, content, feedback_type').eq('from_agent', 'chain-runner').eq('resolved', false),
         supabase.from('sync_runs' as any).select('id, source, status, items_synced, started_at, finished_at').order('started_at', { ascending: false }).limit(10),
+        supabase.from('agent_feedback' as any).select('id, factory, content, feedback_type, created_at').eq('feedback_type', 'filter_change_request').eq('resolved', false),
       ])
 
       const signals = signalsRes.data || []
+      const signalsRecent = signalsRecentRes.data || []
       const insights = insightsRes.data || []
+      const insightsRecent = insightsRecentRes.data || []
       const leadsData = leadsRes.data || []
       const opps = oppsRes.data || []
+      const oppsRecent = oppsRecentRes.data || []
       const feedback = feedbackRes.data || []
+      const filterRequests = filterReqRes.data || []
       setRecentRuns((runsRes.data || []) as unknown as RecentRun[])
 
-      // ═══ CONSULTING FUNNEL ═══
+      // ═══ CONSULTING FUNNEL (recent 12h / total this month) ═══
       const cSignals = signals.filter((s: any) => s.potential === 'consulting' || !s.potential)
+      const cSignalsRecent = signalsRecent.filter((s: any) => s.potential === 'consulting' || !s.potential)
       const cInsights = insights.filter((i: any) => i.opportunity_type === 'consulting')
-      const cQualified = cInsights.filter((i: any) => i.status === 'qualified' || i.status === 'processed')
-      const cReturned = cInsights.filter((i: any) => i.status === 'returned')
+      const cInsightsRecent = insightsRecent.filter((i: any) => i.opportunity_type === 'consulting')
       const cLeads = leadsData.filter((l: any) => !l.session_id && (l.topic_guess?.startsWith('insight:') || l.status === 'pending_approval' || l.status === 'approved' || l.status === 'sent'))
       const cPending = leadsData.filter((l: any) => l.status === 'pending_approval')
       const cApproved = leadsData.filter((l: any) => l.status === 'approved' || l.status === 'sent')
@@ -98,25 +110,25 @@ export function TwinDashboard() {
       const cTargets = { signals: Math.round(900 * progress), insights: Math.round(450 * progress), leads: Math.round(90 * progress), deals: Math.round(2 * progress) }
 
       setConsultingFunnel([
-        { label: 'Сигналы', icon: Search, count: cSignals.length, target: cTargets.signals, conversion: '—' },
-        { label: 'Инсайты', icon: Lightbulb, count: cInsights.length, target: cTargets.insights, conversion: cSignals.length > 0 ? `${(cInsights.length / cSignals.length * 100).toFixed(0)}%` : '—' },
-        { label: 'Лиды', icon: MessageSquare, count: cLeads.length, target: cTargets.leads, conversion: cInsights.length > 0 ? `${(cLeads.length / cInsights.length * 100).toFixed(0)}%` : '—' },
-        { label: 'Сделки', icon: ShoppingCart, count: cApproved.length, target: cTargets.deals, conversion: cLeads.length > 0 ? `${(cApproved.length / cLeads.length * 100).toFixed(0)}%` : '—' },
+        { label: 'Сигналы', icon: Search, recent: cSignalsRecent.length, count: cSignals.length, target: cTargets.signals, conversion: '—' } as any,
+        { label: 'Инсайты', icon: Lightbulb, recent: cInsightsRecent.length, count: cInsights.length, target: cTargets.insights, conversion: cSignals.length > 0 ? `${(cInsights.length / cSignals.length * 100).toFixed(0)}%` : '—' } as any,
+        { label: 'Лиды', icon: MessageSquare, recent: 0, count: cLeads.length, target: cTargets.leads, conversion: cInsights.length > 0 ? `${(cLeads.length / cInsights.length * 100).toFixed(0)}%` : '—' } as any,
+        { label: 'Сделки', icon: ShoppingCart, recent: 0, count: cApproved.length, target: cTargets.deals, conversion: cLeads.length > 0 ? `${(cApproved.length / cLeads.length * 100).toFixed(0)}%` : '—' } as any,
       ])
 
       // ═══ FOUNDRY FUNNEL ═══
       const fSignals = signals.filter((s: any) => s.potential === 'foundry')
+      const fSignalsRecent = signalsRecent.filter((s: any) => s.potential === 'foundry')
       const fInsights = insights.filter((i: any) => i.opportunity_type === 'foundry' || i.opportunity_type === 'innovation_pilot')
-      const fQualified = fInsights.filter((i: any) => i.status === 'qualified' || i.status === 'processed')
+      const fInsightsRecent = insightsRecent.filter((i: any) => i.opportunity_type === 'foundry' || i.opportunity_type === 'innovation_pilot')
       const fOpps = opps.filter((o: any) => o.stage !== 'killed')
-      const fPendingOpps = opps.filter((o: any) => o.stage === 'opportunity')
 
       const fTargets = { signals: Math.round(450 * progress), insights: Math.round(150 * progress), opps: Math.round(3 * progress) }
 
       setFoundryFunnel([
-        { label: 'Сигналы', icon: Search, count: fSignals.length, target: fTargets.signals, conversion: '—' },
-        { label: 'Инсайты', icon: Lightbulb, count: fInsights.length, target: fTargets.insights, conversion: fSignals.length > 0 ? `${(fInsights.length / fSignals.length * 100).toFixed(0)}%` : '—' },
-        { label: 'Проекты', icon: Wrench, count: fOpps.length, target: fTargets.opps, conversion: fInsights.length > 0 ? `${(fOpps.length / fInsights.length * 100).toFixed(0)}%` : '—' },
+        { label: 'Сигналы', icon: Search, recent: fSignalsRecent.length, count: fSignals.length, target: fTargets.signals, conversion: '—' } as any,
+        { label: 'Инсайты', icon: Lightbulb, recent: fInsightsRecent.length, count: fInsights.length, target: fTargets.insights, conversion: fSignals.length > 0 ? `${(fInsights.length / fSignals.length * 100).toFixed(0)}%` : '—' } as any,
+        { label: 'Проекты', icon: Wrench, recent: oppsRecent.length, count: fOpps.length, target: fTargets.opps, conversion: fInsights.length > 0 ? `${(fOpps.length / fInsights.length * 100).toFixed(0)}%` : '—' } as any,
       ])
 
       // ═══ BOTTLENECKS from chain-runner feedback ═══
@@ -127,6 +139,8 @@ export function TwinDashboard() {
 
       // ═══ PENDING ITEMS ═══
       const pendingItems: PendingItem[] = []
+      
+      // Leads from marketer
       cPending.forEach((l: any) => pendingItems.push({
         id: l.id, type: 'lead',
         title: l.company_name || l.name || 'Лид',
@@ -134,6 +148,9 @@ export function TwinDashboard() {
         details: l.message || '',
         date: new Date(l.created_at).toLocaleDateString('ru'),
       }))
+      
+      // Opportunities from builder
+      const fPendingOpps = opps.filter((o: any) => o.stage === 'opportunity')
       fPendingOpps.forEach((o: any) => {
         const notesLines = (o.notes || '').split('\n')
         const requestLine = notesLines.find((l: string) => l.startsWith('✅ ЗАПРОС'))
@@ -145,6 +162,19 @@ export function TwinDashboard() {
           date: new Date(o.created_at).toLocaleDateString('ru'),
         })
       })
+
+      // Filter change requests from factory admin
+      filterRequests.forEach((fr: any) => {
+        pendingItems.push({
+          id: fr.id, type: 'filter_change',
+          title: fr.factory === 'consulting' ? 'Consulting Factory' : 'Foundry Factory',
+          approvalRequest: fr.content || 'Предлагаю изменить фильтры потока',
+          details: fr.content || '',
+          date: new Date(fr.created_at).toLocaleDateString('ru'),
+          factory: fr.factory,
+        })
+      })
+
       setPending(pendingItems)
 
       // ═══ CHAT STATS ═══
@@ -198,6 +228,16 @@ export function TwinDashboard() {
     toast.success('Проект отклонён')
     setPending(prev => prev.filter(p => p.id !== id))
   }
+  const approveFilterChange = async (id: string) => {
+    await (supabase as any).from('agent_feedback').update({ resolved: true }).eq('id', id)
+    toast.success('✅ Фильтры будут обновлены')
+    setPending(prev => prev.filter(p => p.id !== id)); loadData()
+  }
+  const rejectFilterChange = async (id: string) => {
+    await (supabase as any).from('agent_feedback').update({ resolved: true }).eq('id', id)
+    toast.success('Предложение отклонено')
+    setPending(prev => prev.filter(p => p.id !== id))
+  }
 
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" /></div>
 
@@ -205,7 +245,7 @@ export function TwinDashboard() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-slate-100">Дашборд</h2>
-        <p className="mt-1 text-sm text-slate-500">Воронки обновляются автоматически. Система сама оптимизирует агентов под KPI.</p>
+        <p className="mt-1 text-sm text-slate-500">Воронки обновляются автоматически. Зелёным — новое за 12 часов.</p>
       </div>
 
       {/* Bottlenecks / Auto-optimization alerts */}
@@ -249,7 +289,9 @@ export function TwinDashboard() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="mb-1 flex items-center gap-2">
-                      <span className="shrink-0 rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-300">{item.type === 'lead' ? '📨 Маркетолог' : '🚀 Создатель'}</span>
+                      <span className="shrink-0 rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                        {item.type === 'lead' ? '📨 Маркетолог' : item.type === 'opportunity' ? '🚀 Создатель' : '⚙️ Администратор'}
+                      </span>
                       <span className="truncate text-sm font-semibold text-slate-200">{item.title}</span>
                       <span className="shrink-0 text-[10px] text-slate-500">{item.date}</span>
                     </div>
@@ -258,8 +300,16 @@ export function TwinDashboard() {
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button onClick={() => setExpanded(expanded === item.id ? null : item.id)} className="rounded-md p-1.5 hover:bg-slate-700"><Eye className="h-4 w-4 text-slate-400" /></button>
-                    <button onClick={() => item.type === 'lead' ? approveLead(item.id) : approveOpportunity(item.id)} className="rounded-md bg-blue-500/10 p-1.5 hover:bg-blue-500/20"><Check className="h-4 w-4 text-blue-400" /></button>
-                    <button onClick={() => item.type === 'lead' ? rejectLead(item.id) : rejectOpportunity(item.id)} className="rounded-md p-1.5 hover:bg-red-500/10"><XIcon className="h-4 w-4 text-red-400" /></button>
+                    <button onClick={() => {
+                      if (item.type === 'lead') approveLead(item.id)
+                      else if (item.type === 'opportunity') approveOpportunity(item.id)
+                      else approveFilterChange(item.id)
+                    }} className="rounded-md bg-blue-500/10 p-1.5 hover:bg-blue-500/20"><Check className="h-4 w-4 text-blue-400" /></button>
+                    <button onClick={() => {
+                      if (item.type === 'lead') rejectLead(item.id)
+                      else if (item.type === 'opportunity') rejectOpportunity(item.id)
+                      else rejectFilterChange(item.id)
+                    }} className="rounded-md p-1.5 hover:bg-red-500/10"><XIcon className="h-4 w-4 text-red-400" /></button>
                   </div>
                 </div>
               </div>
@@ -338,9 +388,11 @@ function FunnelCard({ title, subtitle, stages, flow, onToggleFlow }: {
       {/* Funnel visualization */}
       <div className="space-y-2">
         {stages.map((stage, i) => {
-          const pct = stage.target > 0 ? Math.min(stage.count / stage.target, 1) : 0
-          const behind = stage.target > 0 && stage.count < stage.target * 0.5
-          const ahead = stage.target > 0 && stage.count >= stage.target
+          const count = (stage as any).count ?? 0
+          const recent = stage.recent ?? 0
+          const pct = stage.target > 0 ? Math.min(count / stage.target, 1) : 0
+          const behind = stage.target > 0 && count < stage.target * 0.5
+          const ahead = stage.target > 0 && count >= stage.target
 
           return (
             <div key={stage.label}>
@@ -357,8 +409,11 @@ function FunnelCard({ title, subtitle, stages, flow, onToggleFlow }: {
                     <span className="text-xs text-slate-400">{stage.label}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
+                    {recent > 0 && (
+                      <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">+{recent}</span>
+                    )}
                     <span className={`text-lg font-bold ${behind ? 'text-red-400' : ahead ? 'text-emerald-400' : 'text-slate-100'}`}>
-                      {stage.count}
+                      {count}
                     </span>
                     <span className="text-[10px] text-slate-600">/ {stage.target}</span>
                     {behind && <TrendingDown className="h-3 w-3 text-red-400" />}
