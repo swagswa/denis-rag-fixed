@@ -30,6 +30,17 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // Load flow settings for mandate
+    const { data: flows } = await supabase
+      .from("factory_flows")
+      .select("target_industry, target_region, target_notes")
+      .eq("factory", "foundry")
+      .eq("status", "active")
+      .limit(5);
+
+    const mandateIndustry = flows?.map((f: any) => f.target_industry).filter(Boolean).join(", ") || "e-com, маркетплейсы, AI-сервисы";
+    const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
+
     // Builder получает ТОЛЬКО квалифицированные инсайты от Аналитика
     const { data: insights, error: insightsError } = await supabase
       .from("insights")
@@ -50,10 +61,12 @@ serve(async (req) => {
     const insightIds = insights.map((i: any) => i.id);
     const { data: existingOpps } = await supabase
       .from("startup_opportunities")
-      .select("insight_id")
-      .in("insight_id", insightIds);
+      .select("insight_id, idea")
+      .order("created_at", { ascending: false })
+      .limit(50);
 
-    const alreadyProcessed = new Set((existingOpps || []).map((o: any) => o.insight_id).filter(Boolean));
+    const alreadyProcessed = new Set((existingOpps || []).filter((o: any) => o.insight_id).map((o: any) => o.insight_id));
+    const existingIdeas = (existingOpps || []).map((o: any) => (o.idea || "").toLowerCase()).filter(Boolean);
     const queue = insights.filter((i: any) => !alreadyProcessed.has(i.id));
 
     if (queue.length === 0) {
@@ -61,6 +74,11 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Build dedup context for GPT
+    const existingIdeasBrief = existingIdeas.length > 0
+      ? `\n\nУЖЕ СУЩЕСТВУЮЩИЕ ПРОЕКТЫ (НЕ ДУБЛИРУЙ!):\n${existingIdeas.slice(0, 20).map((idea, i) => `${i + 1}. ${idea}`).join("\n")}`
+      : "";
 
     const brief = queue
       .map((i: any, idx: number) => `#${idx + 1}
