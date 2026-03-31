@@ -341,7 +341,8 @@ ${filteredBrief}`;
           complexity: item.complexity === "low" ? "low" : "medium",
           revenue_estimate: Number(item.revenue_estimate) || 0,
           notes: compactText(detailedNotes, 1500),
-          stage: "opportunity",
+          stage: "pending_approval",
+          insight_id: insight.id,
         } as any);
 
         if (oppError) {
