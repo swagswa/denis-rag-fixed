@@ -197,11 +197,26 @@ ${brief}`;
         const contactName = compact(item.contact_name, 100);
         const contactChannel = compact(item.contact_channel, 200);
         const msg = compact(item.outreach_message, 800);
+        const searchEvidence = compact(item.search_evidence, 300);
 
         // HARD VALIDATION: must have company, person name, contact, and message
         if (!cn || !contactName || !contactChannel || !msg) {
           await supabase.from("insights").update({ status: "returned", notes: "Маркетолог: не удалось найти конкретного ЛПР с контактом.", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
           try { await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "quality_issue", content: `"${insight.title}": нет конкретного ЛПР с контактом. Нужен инсайт с более конкретной компанией/отраслью.` } as any); } catch {}
+          returned++;
+          continue;
+        }
+
+        // ═══ ANTI-HALLUCINATION: verify contact exists in search results ═══
+        const searchData = pairedResults[idx - 1];
+        const allSearchText = `${searchData?.companies || ""} ${searchData?.contacts || ""}`.toLowerCase();
+        const nameParts = contactName.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
+        const nameFoundInSearch = nameParts.length > 0 && nameParts.some((part: string) => allSearchText.includes(part));
+
+        if (!nameFoundInSearch && FIRECRAWL_API_KEY) {
+          console.log(`[marketer] ❌ HALLUCINATED contact: "${contactName}" not found in search results for "${cn}"`);
+          await supabase.from("insights").update({ status: "returned", notes: `Маркетолог: контакт "${contactName}" не найден в результатах поиска — возможна галлюцинация.`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+          try { await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "hallucination", content: `"${insight.title}": GPT выдумал контакт "${contactName}". Этого человека нет в результатах Firecrawl. Нужен инсайт с более конкретной компанией, чтобы поиск дал результаты.` } as any); } catch {}
           returned++;
           continue;
         }
