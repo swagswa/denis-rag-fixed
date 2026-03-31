@@ -21,14 +21,12 @@ export function AssistantStats() {
     const load = async () => {
       const [chatsRes, leadsRes] = await Promise.all([
         supabase.from('conversations').select('id, page, session_id, created_at'),
-        supabase.from('leads').select('id, session_id').not('session_id', 'is', null),
+        supabase.from('leads').select('id, created_at'),
       ])
 
       const chats = chatsRes.data || []
       const leads = leadsRes.data || []
-      const chatSessionIds = new Set(chats.map(c => c.session_id).filter(Boolean))
-      const chatLeads = leads.filter(lead => lead.session_id && chatSessionIds.has(lead.session_id))
-      setTotalLeads(chatLeads.length)
+      setTotalLeads(leads.length)
 
       const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0)
       const todayStr = todayDate.toISOString()
