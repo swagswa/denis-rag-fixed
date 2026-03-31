@@ -86,15 +86,34 @@ serve(async (req) => {
       .map((f: any) => `[${f.factory}/${f.feedback_type}]: ${f.content}`)
       .join("\n");
 
-    // Load KPI targets
+    // Load KPI targets + SELF-OPTIMIZATION
     const { data: kpiGoals } = await supabase
       .from("agent_kpi")
-      .select("factory, metric, target, current")
+      .select("id, factory, metric, target, current")
       .eq("active", true);
 
     const kpiContext = (kpiGoals || [])
       .map((k: any) => `[${k.factory}] ${k.metric}: ${k.current}/${k.target}`)
       .join("\n");
+
+    // Self-optimization: check analyst KPI
+    const myKpi = (kpiGoals || []).find((k: any) => k.factory === factory && k.metric === "insights_per_week");
+    const kpiGap = myKpi ? Math.max(0, (myKpi.target || 0) - (myKpi.current || 0)) : 0;
+    const isUrgent = kpiGap > (myKpi?.target || 20) * 0.5;
+
+    let selfOptimizationPrompt = "";
+    if (kpiGap > 0) {
+      selfOptimizationPrompt = `
+═══ 🚨 САМООПТИМИЗАЦИЯ АНАЛИТИКА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
+Осталось создать ${kpiGap} инсайтов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
+АДАПТАЦИЯ:
+${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала, если он хоть немного релевантен" : "- Расширь критерии: бери сигналы из СМЕЖНЫХ отраслей"}
+- Используй ИСТОРИЧЕСКИЕ сигналы (см. ниже) — они могут стать актуальными при новых триггерах
+- Не будь слишком строгим — Маркетолог/Билдер сами отфильтруют нерелевантное
+- РЕКОМЕНДАЦИИ СКАУТУ: "Нужно больше сигналов из отраслей: ${factory === "consulting" ? "логистика, медицина, образование, ритейл" : "AgriTech, EdTech, FinTech, HealthTech"}. Текущие сигналы слишком общие."
+- РЕКОМЕНДАЦИИ ${factory === "consulting" ? "МАРКЕТОЛОГУ" : "БИЛДЕРУ"}: "Даю больше инсайтов. Возвращай с КОНКРЕТНЫМИ причинами — я адаптируюсь."
+`;
+    }
 
     // ═══ PHASE 1: Process NEW signals (including recycled ones) ═══
     // Filter signals by factory to prevent cross-contamination
