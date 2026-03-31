@@ -1,0 +1,12 @@
+---
+name: Supabase напрямую
+description: ВСЕ таблицы, функции и данные — ТОЛЬКО через Supabase Dashboard напрямую. Lovable Cloud ТОЛЬКО для LOVABLE_API_KEY (чат). Не создавать таблицы/миграции через Lovable Cloud.
+type: constraint
+---
+## КРИТИЧНО
+- Таблицы, миграции, данные — ТОЛЬКО через Supabase Dashboard напрямую
+- Lovable Cloud включён ТОЛЬКО ради LOVABLE_API_KEY для чата
+- НЕ создавать таблицы через migration tool Lovable
+- НЕ ломать существующую структуру Supabase
+- Edge Functions деплоятся через Supabase CLI / Dashboard, НЕ через Lovable deploy
+- Секреты (OPENAI_API_KEY, FIRECRAWL_API_KEY) — в Supabase Dashboard → Settings → Edge Functions → Secrets
