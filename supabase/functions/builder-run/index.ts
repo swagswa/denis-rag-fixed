@@ -41,6 +41,29 @@ serve(async (req) => {
     const mandateIndustry = flows?.map((f: any) => f.target_industry).filter(Boolean).join(", ") || "e-com, маркетплейсы, AI-сервисы";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
+    // ═══ SELF-OPTIMIZATION: KPI check ═══
+    const { data: kpiGoals } = await supabase
+      .from("agent_kpi")
+      .select("id, factory, metric, target, current")
+      .eq("active", true);
+
+    const myKpi = (kpiGoals || []).find((k: any) => k.factory === "foundry" && k.metric === "ideas_per_week");
+    const kpiGap = myKpi ? Math.max(0, (myKpi.target || 0) - (myKpi.current || 0)) : 0;
+    const isUrgent = kpiGap > (myKpi?.target || 5) * 0.5;
+
+    let selfOptimizationPrompt = "";
+    if (kpiGap > 0) {
+      selfOptimizationPrompt = `
+═══ 🚨 САМООПТИМИЗАЦИЯ БИЛДЕРА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
+Осталось создать ${kpiGap} проектов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
+АДАПТАЦИЯ:
+${isUrgent ? "- Будь менее строгим: принимай идеи с ЧАСТИЧНЫМИ доказательствами спроса" : "- Расширь критерии: рассмотри идеи из СМЕЖНЫХ отраслей"}
+- Даже если MVP сложноват — можно начать с УПРОЩЁННОЙ версии
+- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Нужны НИШЕВЫЕ идеи для конкретных отраслей (медицина, логистика, агро). С доказательствами спроса: Вордстат, Авито, TG-обсуждения."
+- РЕКОМЕНДАЦИИ СКАУТУ: "Ищи зарубежные стартапы в нишах: ${mandateIndustry}. Особенно те, у которых НЕТ аналога в РФ."
+`;
+    }
+
     // Builder получает ТОЛЬКО квалифицированные инсайты от Аналитика
     const { data: insights, error: insightsError } = await supabase
       .from("insights")
