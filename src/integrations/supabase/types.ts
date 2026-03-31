@@ -14,7 +14,364 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agent_feedback: {
+        Row: {
+          content: string | null
+          created_at: string
+          factory: string | null
+          feedback_type: string | null
+          from_agent: string | null
+          id: string
+          insight_id: string | null
+          resolved: boolean | null
+          signal_id: string | null
+          to_agent: string | null
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string
+          factory?: string | null
+          feedback_type?: string | null
+          from_agent?: string | null
+          id?: string
+          insight_id?: string | null
+          resolved?: boolean | null
+          signal_id?: string | null
+          to_agent?: string | null
+        }
+        Update: {
+          content?: string | null
+          created_at?: string
+          factory?: string | null
+          feedback_type?: string | null
+          from_agent?: string | null
+          id?: string
+          insight_id?: string | null
+          resolved?: boolean | null
+          signal_id?: string | null
+          to_agent?: string | null
+        }
+        Relationships: []
+      }
+      agent_kpi: {
+        Row: {
+          active: boolean | null
+          created_at: string
+          current: number | null
+          factory: string | null
+          id: string
+          metric: string | null
+          target: number | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean | null
+          created_at?: string
+          current?: number | null
+          factory?: string | null
+          id?: string
+          metric?: string | null
+          target?: number | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean | null
+          created_at?: string
+          current?: number | null
+          factory?: string | null
+          id?: string
+          metric?: string | null
+          target?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      assistant_prompts: {
+        Row: {
+          active: boolean | null
+          created_at: string
+          id: string
+          site_id: string
+          system_prompt: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean | null
+          created_at?: string
+          id?: string
+          site_id: string
+          system_prompt?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean | null
+          created_at?: string
+          id?: string
+          site_id?: string
+          system_prompt?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      conversations: {
+        Row: {
+          created_at: string
+          id: string
+          messages: Json | null
+          site_id: string | null
+          updated_at: string
+          visitor_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          messages?: Json | null
+          site_id?: string | null
+          updated_at?: string
+          visitor_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          messages?: Json | null
+          site_id?: string | null
+          updated_at?: string
+          visitor_id?: string | null
+        }
+        Relationships: []
+      }
+      factory_flows: {
+        Row: {
+          created_at: string
+          factory: string
+          id: string
+          status: string
+          target_company_size: string | null
+          target_industry: string | null
+          target_notes: string | null
+          target_region: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          factory?: string
+          id?: string
+          status?: string
+          target_company_size?: string | null
+          target_industry?: string | null
+          target_notes?: string | null
+          target_region?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          factory?: string
+          id?: string
+          status?: string
+          target_company_size?: string | null
+          target_industry?: string | null
+          target_notes?: string | null
+          target_region?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      insights: {
+        Row: {
+          action_proposal: string | null
+          company_name: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          opportunity_type: string | null
+          problem: string | null
+          signal_id: string | null
+          status: string
+          title: string
+          updated_at: string
+          what_happens: string | null
+          why_important: string | null
+        }
+        Insert: {
+          action_proposal?: string | null
+          company_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          opportunity_type?: string | null
+          problem?: string | null
+          signal_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          what_happens?: string | null
+          why_important?: string | null
+        }
+        Update: {
+          action_proposal?: string | null
+          company_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          opportunity_type?: string | null
+          problem?: string | null
+          signal_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          what_happens?: string | null
+          why_important?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insights_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          id: string
+          lead_summary: string | null
+          message: string | null
+          name: string | null
+          role: string | null
+          status: string
+          topic_guess: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          id?: string
+          lead_summary?: string | null
+          message?: string | null
+          name?: string | null
+          role?: string | null
+          status?: string
+          topic_guess?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          id?: string
+          lead_summary?: string | null
+          message?: string | null
+          name?: string | null
+          role?: string | null
+          status?: string
+          topic_guess?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      signals: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          description: string
+          id: string
+          industry: string | null
+          notes: string | null
+          potential: string | null
+          signal_type: string
+          source: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          description?: string
+          id?: string
+          industry?: string | null
+          notes?: string | null
+          potential?: string | null
+          signal_type?: string
+          source?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          description?: string
+          id?: string
+          industry?: string | null
+          notes?: string | null
+          potential?: string | null
+          signal_type?: string
+          source?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      startup_opportunities: {
+        Row: {
+          complexity: string | null
+          created_at: string
+          id: string
+          idea: string | null
+          insight_id: string | null
+          market: string | null
+          monetization: string | null
+          notes: string | null
+          problem: string | null
+          revenue_estimate: number | null
+          solution: string | null
+          source: string | null
+          stage: string | null
+          updated_at: string
+        }
+        Insert: {
+          complexity?: string | null
+          created_at?: string
+          id?: string
+          idea?: string | null
+          insight_id?: string | null
+          market?: string | null
+          monetization?: string | null
+          notes?: string | null
+          problem?: string | null
+          revenue_estimate?: number | null
+          solution?: string | null
+          source?: string | null
+          stage?: string | null
+          updated_at?: string
+        }
+        Update: {
+          complexity?: string | null
+          created_at?: string
+          id?: string
+          idea?: string | null
+          insight_id?: string | null
+          market?: string | null
+          monetization?: string | null
+          notes?: string | null
+          problem?: string | null
+          revenue_estimate?: number | null
+          solution?: string | null
+          source?: string | null
+          stage?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "startup_opportunities_insight_id_fkey"
+            columns: ["insight_id"]
+            isOneToOne: false
+            referencedRelation: "insights"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
