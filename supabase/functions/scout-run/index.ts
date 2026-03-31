@@ -361,9 +361,16 @@ ${selfOptimizationPrompt}
       existingDescriptions.add(descKey);
 
       const potential = item.potential === "foundry" ? "foundry" : "consulting";
+      const companyName = compactText(item.company_name, 120) || null;
+
+      // 🔴 CONSULTING сигналы БЕЗ company_name — отбрасываем
+      if (potential === "consulting" && !companyName) {
+        console.log(`Skipped consulting signal without company_name: ${desc.slice(0, 80)}`);
+        continue;
+      }
 
       toInsert.push({
-        company_name: compactText(item.company_name, 120) || null,
+        company_name: companyName,
         description: desc,
         signal_type: compactText(item.signal_type, 50),
         industry: compactText(item.industry, 80) || null,
@@ -377,38 +384,6 @@ ${selfOptimizationPrompt}
     if (toInsert.length > 0) {
       const { error: insertError } = await supabase.from("signals").insert(toInsert);
       if (insertError) throw insertError;
-
-      // ═══ PHASE 3.5: Сохраняем сигналы в базу знаний (documents) ═══
-      const kbDocs = toInsert.map((sig: any) => {
-        const content = [
-          `# [Signal] ${sig.company_name || sig.signal_type}`,
-          `Тип сигнала: ${sig.signal_type}`,
-          `Потенциал: ${sig.potential}`,
-          sig.industry ? `Индустрия: ${sig.industry}` : null,
-          sig.company_name ? `Компания: ${sig.company_name}` : null,
-          `Источник: ${sig.source || "н/д"}`,
-          `\n## Описание\n${sig.description}`,
-          sig.notes ? `\n## Заметки\n${sig.notes}` : null,
-        ].filter(Boolean).join("\n");
-
-        return {
-          title: `[Signal] ${sig.company_name || sig.signal_type}: ${sig.description.slice(0, 80)}`,
-          content,
-          source_type: "agent",
-          source_name: "scout-run",
-          topic: sig.potential,
-          metadata_json: {
-            signal_type: sig.signal_type,
-            potential: sig.potential,
-            industry: sig.industry,
-            company_name: sig.company_name,
-            auto_saved: true,
-          },
-        };
-      });
-
-      const { error: kbError } = await supabase.from("documents").insert(kbDocs);
-      if (kbError) console.error("KB save error (non-fatal):", kbError);
     }
 
     // ═══ PHASE 4: Логируем запуск ═══
