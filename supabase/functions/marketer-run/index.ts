@@ -102,7 +102,6 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true, message: "All insights already processed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-      });
     }
 
     // ═══ BATCH FIRECRAWL: TWO searches per insight (company + person) ═══
