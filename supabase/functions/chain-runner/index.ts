@@ -19,7 +19,7 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
     const chain = factory === "foundry"
-      ? ["scout-run", "analyst-run", "builder-run"]
+      ? ["scout-run", "analyst-run", "foundry-qualify", "builder-run"]
       : ["scout-run", "analyst-run", "marketer-run"];
 
     const results: { fn: string; status: number; data: any }[] = [];
