@@ -71,12 +71,13 @@ async function resolveSystemPrompt({
 
   let basePrompt = DEFAULT_SYSTEM_PROMPT;
 
-  try {
-    const { data } = await supabase
-      .from("settings")
-      .select("system_prompt, product_prompts")
-      .limit(1)
-      .single() as any;
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from("settings")
+        .select("system_prompt, product_prompts")
+        .limit(1)
+        .single() as any;
 
     const productKey = detectProductContext(pageContext);
     const productPrompt = data?.product_prompts?.[productKey];
