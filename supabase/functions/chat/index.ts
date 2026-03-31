@@ -220,13 +220,13 @@ serve(async (req) => {
       });
     }
 
-    // Connect to Supabase for DB operations
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    // Connect to ORIGINAL Supabase (NOT Lovable Cloud) for DB operations
+    const ORIGINAL_SUPABASE_URL = "https://kuodvlyepoojqimutmvu.supabase.co";
+    const ORIGINAL_SERVICE_ROLE = Deno.env.get("ORIGINAL_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     let supabase: ReturnType<typeof createClient> | null = null;
-    if (supabaseKey) {
-      supabase = createClient(supabaseUrl, supabaseKey);
+    if (ORIGINAL_SERVICE_ROLE) {
+      supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_SERVICE_ROLE);
     }
 
     const systemPrompt = await resolveSystemPrompt({
