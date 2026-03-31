@@ -22,10 +22,10 @@ SELECT cron.schedule(
   $$
 );
 
--- ═══ Foundry Factory: каждый час ═══
+-- ═══ Foundry Factory: каждые 30 минут ═══
 SELECT cron.schedule(
   'foundry-chain',
-  '0 * * * *',  -- каждый час
+  '*/30 * * * *',  -- каждые 30 минут
   $$
   SELECT net.http_post(
     url := current_setting('app.settings.supabase_url') || '/functions/v1/chain-runner',
