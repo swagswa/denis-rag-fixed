@@ -221,7 +221,7 @@ ${existingIdeasBrief}
 5) Верни строго JSON-массив без markdown.
 
 ИНСАЙТЫ:
-${brief}`;
+${filteredBrief}`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
