@@ -420,6 +420,7 @@ ${brief}`;
 
       // Log insights created
       console.log(`Analyst created ${toInsert.length} insights from ${analyzedIds.size} signals`);
+    }
 
     const skippedSignals = queue.filter((signal) => !analyzedIds.has(signal.id));
 
