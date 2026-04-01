@@ -1,4 +1,4 @@
-// marketer-run v5 — STRICT: real company + real person + real contact
+// marketer-run v6 — FIXED: source_index, parse resilience, Level B priority
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -44,6 +44,17 @@ async function firecrawlScrape(url: string, apiKey: string): Promise<string> {
   } catch { return ""; }
 }
 
+// Resolve source_index: GPT may use 0-based or 1-based numbering
+function resolveIndex(raw: unknown, queueLen: number): number | null {
+  const idx = Number(raw);
+  if (!Number.isInteger(idx)) return null;
+  // Prompt uses #1, #2... so expected is 1-based
+  if (idx >= 1 && idx <= queueLen) return idx - 1;
+  // GPT sometimes returns 0-based
+  if (idx >= 0 && idx < queueLen) return idx;
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -84,13 +95,13 @@ serve(async (req) => {
 ═══ 🚨 САМООПТИМИЗАЦИЯ МАРКЕТОЛОГА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
 Осталось создать ${kpiGap} лидов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
 АДАПТАЦИЯ:
-${isUrgent ? "- Расширь критерии поиска: ищи не только ЛПР, но и КОМПАНИИ с болью — контакт можно найти позже" : "- Будь активнее в поиске: пробуй альтернативные каналы (LinkedIn, Telegram-каналы отрасли)"}
-- Если не находишь конкретного ЛПР — ВСЁРАВНО квалифицируй компанию, указав "контакт: найти через LinkedIn/hh.ru"
-- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Нужны инсайты с более КОНКРЕТНЫМ профилем ЦА. Указывай ОТРАСЛЬ + РАЗМЕР + КОНКРЕТНЫЕ ПРИЗНАКИ боли, по которым я могу искать компании."
+- Расширь критерии: ищи не только ЛПР, но и КОМПАНИИ с болью — контакт можно найти позже
+- Если не находишь конкретного ЛПР — ОБЯЗАТЕЛЬНО квалифицируй как Уровень B
+- МИНИМУМ 60% инсайтов должны стать лидами (Level A или Level B)
 `;
     }
 
-    // Step 1: Get ALL consulting insights with status new/qualified
+    // Step 1: Get consulting insights with status new/qualified
     const { data: allInsights, error: insErr } = await supabase
       .from("insights")
       .select("id, title, company_name, what_happens, why_important, problem, action_proposal, signal_id")
@@ -106,14 +117,13 @@ ${isUrgent ? "- Расширь критерии поиска: ищи не тол
       });
     }
 
-    // Step 2: Check which already have SUCCESSFUL leads (not returned/rejected)
+    // Step 2: Check which already have leads (not rejected)
     const allIds = allInsights.map((i: any) => i.id);
     const { data: existing } = await supabase
       .from("leads")
       .select("topic_guess, status")
       .in("topic_guess", allIds.map((id: string) => `insight:${id}`));
     
-    // Only count leads that were approved or pending — NOT rejected ones
     const done = new Set(
       (existing || [])
         .filter((l: any) => l.status !== "rejected")
@@ -126,7 +136,9 @@ ${isUrgent ? "- Расширь критерии поиска: ищи не тол
       });
     }
 
-    // ═══ BATCH FIRECRAWL: TWO searches per insight (company + person) ═══
+    console.log(`[marketer] Processing ${queue.length} insights: ${queue.map((i: any) => i.title).join("; ")}`);
+
+    // ═══ BATCH FIRECRAWL: TWO searches per insight ═══
     const searchPromises = queue.flatMap((insight: any) => {
       if (!FIRECRAWL_API_KEY) return [Promise.resolve("(нет Firecrawl)"), Promise.resolve("")];
       const companyQ = `${insight.problem || insight.title} компания ${mandateRegion} ${mandateSize} сотрудников`;
@@ -138,7 +150,6 @@ ${isUrgent ? "- Расширь критерии поиска: ищи не тол
     });
     const allSearchResults = await Promise.all(searchPromises);
 
-    // Pair results: [companyResults, contactResults] per insight
     const pairedResults: { companies: string; contacts: string; websiteContent: string }[] = [];
     for (let i = 0; i < queue.length; i++) {
       pairedResults.push({
@@ -148,12 +159,11 @@ ${isUrgent ? "- Расширь критерии поиска: ищи не тол
       });
     }
 
-    // ═══ PHASE 2.5: Scrape company websites for personalized outreach ═══
+    // ═══ PHASE 2.5: Scrape company websites ═══
     if (FIRECRAWL_API_KEY) {
       const scrapePromises: Promise<void>[] = [];
       for (let i = 0; i < pairedResults.length; i++) {
         const companyLines = pairedResults[i].companies;
-        // Extract first URL from search results
         const urlMatch = companyLines.match(/https?:\/\/[^\s|]+/);
         if (urlMatch) {
           const url = urlMatch[0].replace(/[,;)}\]]+$/, "");
@@ -170,9 +180,10 @@ ${isUrgent ? "- Расширь критерии поиска: ищи не тол
       }
     }
 
-    // ═══ SINGLE GPT CALL for all insights ═══
+    // ═══ SINGLE GPT CALL ═══
     const brief = queue.map((i: any, idx: number) => `#${idx + 1}
 title: ${i.title}
+company_name: ${i.company_name || "(не указана)"}
 what_happens: ${i.what_happens || "—"}
 problem: ${i.problem || "—"}
 action_proposal: ${i.action_proposal || "—"}
@@ -183,64 +194,62 @@ ${pairedResults[idx].companies || "(ничего не найдено)"}
 НАЙДЕННЫЕ КОНТАКТЫ (поиск):
 ${pairedResults[idx].contacts || "(ничего не найдено)"}
 ${pairedResults[idx].websiteContent ? `
-КОНТЕНТ САЙТА КОМПАНИИ (спарсен автоматически):
+КОНТЕНТ САЙТА КОМПАНИИ:
 ${pairedResults[idx].websiteContent.slice(0, 1500)}
-ИНСАЙТЫ ДЛЯ ПЕРСОНАЛИЗАЦИИ: используй конкретные детали с сайта (продукты, услуги, технологии, проблемы) для ПЕРСОНАЛИЗИРОВАННОГО обращения. Например: "Увидел на вашем сайте, что вы работаете с X — хотим предложить Y".` : ""}`).join("\n\n---\n\n");
+ПЕРСОНАЛИЗАЦИЯ: используй детали с сайта для обращения.` : ""}`).join("\n\n---\n\n");
 
     const prompt = `Ты — маркетолог Дениса Матеева. Денис помогает компаниям внедрять AI и автоматизацию.
 
-МАНДАТ (ЖЁСТКИЙ — нарушение = автоматический отказ):
-- Размер компании: ${mandateSize} сотрудников. НЕ крупнее! 1С, Яндекс, Сбер — это НЕ наши клиенты.
+МАНДАТ:
+- Размер компании: ${mandateSize} сотрудников. НЕ крупнее! 1С, Яндекс, Сбер — НЕ наши.
 - Регион: ${mandateRegion}
-- Компания должна быть РЕАЛЬНОЙ — из результатов поиска, НЕ выдуманной.
 
-🚨 КРИТИЧЕСКИ ВАЖНО — ЗАПРЕТ НА ВЫДУМЫВАНИЕ:
-Ты ОБЯЗАН использовать ТОЛЬКО данные из "НАЙДЕННЫЕ КОМПАНИИ", "НАЙДЕННЫЕ КОНТАКТЫ" и "КОНТЕНТ САЙТА КОМПАНИИ".
-❌ ЗАПРЕЩЕНО: выдумывать имена, фамилии, email, telegram, linkedin — ДАЖЕ если они "звучат реалистично"
-❌ ЗАПРЕЩЕНО: подставлять типичные имена (Иван Петров, Алексей Смирнов) если их НЕТ в результатах поиска
-✅ РАЗРЕШЕНО: использовать ТОЛЬКО имена, контакты и компании, которые БУКВАЛЬНО присутствуют в тексте поиска выше
-✅ БОНУС: если есть "КОНТЕНТ САЙТА КОМПАНИИ" — используй КОНКРЕТНЫЕ детали с сайта для персонализации outreach
+🚨 ЗАПРЕТ НА ВЫДУМЫВАНИЕ:
+- Используй ТОЛЬКО данные из "НАЙДЕННЫЕ КОМПАНИИ", "НАЙДЕННЫЕ КОНТАКТЫ" и "КОНТЕНТ САЙТА"
+- ❌ ЗАПРЕЩЕНО выдумывать имена, email, telegram, linkedin
+- ✅ Если нашёл реального человека в результатах поиска — используй
+- ✅ Если НЕ нашёл человека — ОБЯЗАТЕЛЬНО создай Уровень B (компания без контакта)
 
 ═══ ДВУХУРОВНЕВАЯ КВАЛИФИКАЦИЯ ═══
 
-УРОВЕНЬ A — ПОЛНЫЙ ЛИД (есть компания + ЛПР + контакт):
+УРОВЕНЬ A — ПОЛНЫЙ ЛИД (компания + ЛПР + контакт из результатов поиска):
 {"source_index":N, "qualified":true, "level":"A",
- "company_name":"РЕАЛЬНОЕ название компании ИЗ РЕЗУЛЬТАТОВ ПОИСКА",
- "company_size":"~число сотрудников (оценка)",
+ "company_name":"название ИЗ РЕЗУЛЬТАТОВ",
+ "company_size":"~число сотрудников",
  "company_website":"https://...",
- "contact_name":"Имя Фамилия (ТОЛЬКО ИЗ РЕЗУЛЬТАТОВ ПОИСКА)",
+ "contact_name":"Имя Фамилия ИЗ РЕЗУЛЬТАТОВ ПОИСКА",
  "contact_role":"CEO/CTO/CDO",
- "contact_channel":"telegram: @xxx / email: xxx@xxx.ru / linkedin: url (ТОЛЬКО ИЗ РЕЗУЛЬТАТОВ ПОИСКА)",
- "search_evidence":"ЦИТАТА из результатов поиска, где упоминается этот человек/контакт",
- "their_pain":"Конкретная боль ЭТОЙ компании",
- "our_offer":"Что конкретно предложить",
- "why_now":"Почему именно сейчас",
+ "contact_channel":"telegram/email/linkedin ИЗ РЕЗУЛЬТАТОВ",
+ "search_evidence":"ЦИТАТА где упоминается контакт",
+ "their_pain":"боль компании",
+ "our_offer":"что предложить",
+ "why_now":"почему сейчас",
  "expected_value":"₽ число",
- "outreach_subject":"Тема письма/сообщения",
- "outreach_message":"4-6 предложений. Обращение к человеку ПО ИМЕНИ. Начни с конкретного повода (вакансия, новость, статья). Без смайликов. Подпись: Денис Матеев, @deyuma",
- "approval_request":"Кому (Имя, должность, компания) + Что предложить + Канал связи + Ожидаемый чек"}
+ "outreach_subject":"тема письма",
+ "outreach_message":"4-6 предложений. Подпись: Денис Матеев, @deyuma",
+ "approval_request":"Кому + Что + Канал + Чек"}
 
-УРОВЕНЬ B — КОМПАНИЯ БЕЗ КОНТАКТА (есть компания + сайт, но НЕТ ЛПР):
+УРОВЕНЬ B — КОМПАНИЯ БЕЗ КОНТАКТА (есть компания, но НЕТ ЛПР):
 {"source_index":N, "qualified":true, "level":"B",
- "company_name":"РЕАЛЬНОЕ название компании ИЗ РЕЗУЛЬТАТОВ ПОИСКА",
- "company_size":"~число сотрудников (оценка)",
+ "company_name":"название ИЗ РЕЗУЛЬТАТОВ",
+ "company_size":"~число",
  "company_website":"https://...",
- "their_pain":"Конкретная боль ЭТОЙ компании (из контента сайта или контекста поиска)",
- "our_offer":"Что конкретно предложить",
- "why_now":"Почему именно сейчас",
+ "their_pain":"боль компании",
+ "our_offer":"что предложить",
+ "why_now":"почему сейчас",
  "expected_value":"₽ число",
- "search_hints":"ГДЕ искать ЛПР: 1) LinkedIn: запрос '...'. 2) hh.ru: проверить вакансии компании. 3) Сайт: страница 'Команда'/'О нас'. 4) TG: @...",
- "approval_request":"Компания + Боль + Что предложить + Где искать ЛПР + Ожидаемый чек"}
+ "search_hints":"ГДЕ искать ЛПР: 1) LinkedIn: запрос '...'. 2) hh.ru: вакансии. 3) Сайт: /team или /about",
+ "approval_request":"Компания + Боль + Что предложить + Где искать ЛПР + Чек"}
 
-Если НЕ КВАЛИФИЦИРОВАН:
-{"source_index":N, "qualified":false, "reason":"Конкретная причина: не нашёл реальной компании / компания вне мандата"}
+НЕ КВАЛИФИЦИРОВАН (ТОЛЬКО если вообще НЕ нашёл компании в результатах поиска):
+{"source_index":N, "qualified":false, "reason":"причина"}
 
-ПРАВИЛА:
-- Уровень A — ПРИОРИТЕТ. Но если не нашёл контакт — обязательно попробуй Уровень B!
-- Раньше ты возвращал инсайт если нет контакта ЛПР. ТЕПЕРЬ: нет контакта → Уровень B (компания + где искать).
-- Возвращай "не квалифицирован" ТОЛЬКО если не нашёл даже КОМПАНИЮ.
-
-Верни JSON-массив. Без markdown.
+═══ КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА ═══
+1. source_index — номер инсайта (#1 → source_index:1, #2 → source_index:2...)
+2. МИНИМУМ 60% инсайтов ДОЛЖНЫ стать лидами (Level A или Level B)
+3. Если нашёл ЛЮБУЮ реальную компанию в результатах поиска — это минимум Level B
+4. "Не квалифицирован" ТОЛЬКО если поиск вернул пустоту или все компании вне мандата
+5. Верни JSON-массив. Без markdown. Ответь РОВНО по количеству инсайтов.
 ${selfOptimizationPrompt}
 ИНСАЙТЫ:
 ${brief}`;
@@ -248,17 +257,19 @@ ${brief}`;
     const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: prompt }], temperature: 0.2 }),
+      body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: prompt }], temperature: 0.3 }),
     });
 
     if (!aiRes.ok) {
       const t = await aiRes.text();
-      console.error("AI error:", aiRes.status, t.slice(0, 200));
+      console.error("[marketer] AI error:", aiRes.status, t.slice(0, 200));
       throw new Error(`AI error ${aiRes.status}`);
     }
 
     const aiData = await aiRes.json();
     const raw = aiData.choices?.[0]?.message?.content || "";
+    console.log(`[marketer] GPT raw response (first 800 chars): ${raw.slice(0, 800)}`);
+
     let aiItems: any[] = [];
     try {
       let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
@@ -266,40 +277,56 @@ ${brief}`;
       if (m) cleaned = m[0];
       aiItems = JSON.parse(cleaned);
       if (!Array.isArray(aiItems)) aiItems = [aiItems];
-    } catch {
-      console.error("Parse error:", raw.slice(0, 300));
-      return new Response(JSON.stringify({ success: true, insights_processed: queue.length, leads_created: 0, returned_to_analyst: 0, parse_warning: true }), {
+    } catch (parseErr) {
+      console.error("[marketer] Parse error. Raw:", raw.slice(0, 500));
+      // FALLBACK: mark all insights as "returned" so they don't loop forever
+      for (const insight of queue) {
+        await supabase.from("insights").update({
+          status: "returned",
+          notes: "Маркетолог: ошибка парсинга ответа GPT. Попробуем снова при следующем запуске.",
+          updated_at: new Date().toISOString(),
+        } as any).eq("id", (insight as any).id);
+      }
+      return new Response(JSON.stringify({ success: true, insights_processed: queue.length, leads_created: 0, returned_to_analyst: queue.length, parse_error: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     let leadsCreated = 0, returned = 0;
+    const processedInsightIds = new Set<string>();
 
     for (const item of aiItems) {
-      const idx = Number(item?.source_index);
-      if (!Number.isInteger(idx) || idx < 1 || idx > queue.length) continue;
-      const insight = queue[idx - 1] as any;
-      if (!insight) continue;
+      const qIdx = resolveIndex(item?.source_index, queue.length);
+      if (qIdx === null) {
+        console.log(`[marketer] Skipping item with invalid source_index: ${item?.source_index}`);
+        continue;
+      }
+
+      const insight = queue[qIdx] as any;
+      if (!insight || processedInsightIds.has(insight.id)) continue;
+      processedInsightIds.add(insight.id);
 
       if (item.qualified) {
         const level = item.level || "A";
         const cn = compact(item.company_name, 120);
 
         if (!cn) {
-          await supabase.from("insights").update({ status: "returned", notes: "Маркетолог: не найдена реальная компания в результатах поиска.", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+          // No company found — return to analyst
+          await supabase.from("insights").update({ status: "returned", notes: "Маркетолог: не найдена реальная компания.", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
           returned++;
+          console.log(`[marketer] ❌ No company for insight #${qIdx + 1}: "${insight.title}"`);
           continue;
         }
 
         if (level === "A") {
-          // ═══ УРОВЕНЬ A: Полный лид с контактом ═══
+          // ═══ LEVEL A: Full lead with contact ═══
           const contactName = compact(item.contact_name, 100);
           const contactChannel = compact(item.contact_channel, 200);
           const msg = compact(item.outreach_message, 800);
-          const searchEvidence = compact(item.search_evidence, 300);
 
           if (!contactName || !contactChannel || !msg) {
-            // Downgrade to level B
+            // Downgrade to Level B
+            console.log(`[marketer] ⬇️ Downgrade to B (missing contact data): ${cn}`);
             const detail = [
               `📨 КОМПАНИЯ: ${cn}`,
               item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
@@ -308,36 +335,32 @@ ${brief}`;
               `💡 ${compact(item.our_offer, 200)}`,
               `⏰ ${compact(item.why_now, 150)}`,
               `💰 ${compact(item.expected_value, 100)}`,
-              ``, `🔍 ГДЕ ИСКАТЬ ЛПР: Найти через LinkedIn/hh.ru/сайт компании`,
+              ``, `🔍 ГДЕ ИСКАТЬ ЛПР: LinkedIn, hh.ru вакансии, страница "Команда" на сайте`,
             ].filter(Boolean).join("\n");
 
             const { error: le } = await supabase.from("leads").insert({
-              company_name: cn,
-              name: null,
-              role: null,
+              company_name: cn, name: null, role: null,
               message: compact(detail, 800),
               lead_summary: compact(item.approval_request, 300) || `${cn}: ${compact(item.our_offer, 150)}`,
               topic_guess: `insight:${insight.id}`,
               status: "needs_contact",
             } as any);
 
-            if (le) { console.error("Lead insert:", le); continue; }
+            if (le) { console.error("[marketer] Lead insert error:", le); continue; }
             await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
             leadsCreated++;
-            console.log(`[marketer] ✅ LEVEL B (downgraded): ${cn}`);
             continue;
           }
 
-          // ═══ ANTI-HALLUCINATION: verify contact exists in search results ═══
-          const searchData = pairedResults[idx - 1];
-          const allSearchText = `${searchData?.companies || ""} ${searchData?.contacts || ""}`.toLowerCase();
+          // ═══ ANTI-HALLUCINATION: verify contact in search results ═══
+          const searchData = pairedResults[qIdx];
+          const allSearchText = `${searchData?.companies || ""} ${searchData?.contacts || ""} ${searchData?.websiteContent || ""}`.toLowerCase();
           const nameParts = contactName.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
           const nameFoundInSearch = nameParts.length > 0 && nameParts.some((part: string) => allSearchText.includes(part));
 
           if (!nameFoundInSearch && FIRECRAWL_API_KEY) {
-            // Downgrade to level B instead of returning
-            console.log(`[marketer] ⚠️ Contact "${contactName}" not in search — downgrading to Level B for "${cn}"`);
-
+            // Downgrade to Level B
+            console.log(`[marketer] ⬇️ Contact "${contactName}" not in search — Level B for "${cn}"`);
             const detail = [
               `📨 КОМПАНИЯ: ${cn}`,
               item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
@@ -346,12 +369,11 @@ ${brief}`;
               `💡 ${compact(item.our_offer, 200)}`,
               `⏰ ${compact(item.why_now, 150)}`,
               `💰 ${compact(item.expected_value, 100)}`,
-              ``, `🔍 ГДЕ ИСКАТЬ ЛПР: контакт "${contactName}" не подтверждён поиском. Проверить: LinkedIn, hh.ru вакансии компании, страница "Команда" на сайте.`,
+              ``, `🔍 ГДЕ ИСКАТЬ ЛПР: контакт "${contactName}" не подтверждён. Проверить: LinkedIn, hh.ru, страница "Команда".`,
             ].filter(Boolean).join("\n");
 
             const { error: le } = await supabase.from("leads").insert({
-              company_name: cn,
-              name: null,
+              company_name: cn, name: null,
               role: compact(item.contact_role, 80) || null,
               message: compact(detail, 800),
               lead_summary: compact(item.approval_request, 300) || `${cn}: ${compact(item.our_offer, 150)}`,
@@ -359,12 +381,13 @@ ${brief}`;
               status: "needs_contact",
             } as any);
 
-            if (le) { console.error("Lead insert:", le); continue; }
+            if (le) { console.error("[marketer] Lead insert error:", le); continue; }
             await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
             leadsCreated++;
             continue;
           }
 
+          // ═══ LEVEL A: Verified contact ═══
           const detail = [
             `📨 КОМУ: ${contactName}, ${item.contact_role || "ЛПР"} — ${cn}`,
             item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
@@ -379,8 +402,7 @@ ${brief}`;
           ].filter(Boolean).join("\n");
 
           const { error: le } = await supabase.from("leads").insert({
-            company_name: cn,
-            name: contactName,
+            company_name: cn, name: contactName,
             role: compact(item.contact_role, 80) || null,
             message: compact(detail, 800),
             lead_summary: compact(item.approval_request, 300) || `${contactName} (${item.contact_role}) @ ${cn}: ${compact(item.our_offer, 150)}`,
@@ -388,13 +410,13 @@ ${brief}`;
             status: "pending_approval",
           } as any);
 
-          if (le) { console.error("Lead insert:", le); continue; }
+          if (le) { console.error("[marketer] Lead insert error:", le); continue; }
           await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
           leadsCreated++;
           console.log(`[marketer] ✅ LEVEL A: ${contactName} @ ${cn}`);
 
         } else {
-          // ═══ УРОВЕНЬ B: Компания без контакта ═══
+          // ═══ LEVEL B: Company without contact ═══
           const detail = [
             `📨 КОМПАНИЯ: ${cn}`,
             item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
@@ -407,16 +429,14 @@ ${brief}`;
           ].filter(Boolean).join("\n");
 
           const { error: le } = await supabase.from("leads").insert({
-            company_name: cn,
-            name: null,
-            role: null,
+            company_name: cn, name: null, role: null,
             message: compact(detail, 800),
             lead_summary: compact(item.approval_request, 300) || `${cn}: ${compact(item.our_offer, 150)}`,
             topic_guess: `insight:${insight.id}`,
             status: "needs_contact",
           } as any);
 
-          if (le) { console.error("Lead insert:", le); continue; }
+          if (le) { console.error("[marketer] Lead insert error:", le); continue; }
           await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
           leadsCreated++;
           console.log(`[marketer] ✅ LEVEL B: ${cn}`);
@@ -427,39 +447,50 @@ ${brief}`;
         await supabase.from("insights").update({ status: "returned", notes: `Маркетолог: ${reason}`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);
         try { await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "rejection_reason", content: `"${insight.title}": ${reason}`, signal_id: insight.signal_id || null } as any); } catch {}
         returned++;
+        console.log(`[marketer] ❌ Rejected: "${insight.title}" — ${reason}`);
       }
     }
 
-    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    // Mark unprocessed insights as "returned" to avoid infinite loop
+    for (const insight of queue) {
+      if (!processedInsightIds.has((insight as any).id)) {
+        await supabase.from("insights").update({
+          status: "returned",
+          notes: "Маркетолог: GPT не вернул результат для этого инсайта.",
+          updated_at: new Date().toISOString(),
+        } as any).eq("id", (insight as any).id);
+        returned++;
+        console.log(`[marketer] ⚠️ Unprocessed (GPT skipped): "${(insight as any).title}"`);
+      }
+    }
+
+    // ═══ SELF-OPTIMIZATION: Update KPI ═══
     if (myKpi && leadsCreated > 0) {
       await supabase.from("agent_kpi").update({ current: (myKpi.current || 0) + leadsCreated, updated_at: new Date().toISOString() }).eq("id", myKpi.id);
     }
 
-    // If conversion is very low, tell analyst what's wrong
+    // Feedback to analyst if low conversion
     if (queue.length >= 3 && leadsCreated === 0) {
       try {
         await supabase.from("agent_feedback").insert({
-          factory: "consulting",
-          from_agent: "marketer",
-          to_agent: "analyst",
+          factory: "consulting", from_agent: "marketer", to_agent: "analyst",
           feedback_type: "optimization",
-          content: `Конверсия инсайтов в лиды: 0/${queue.length}. Проблемы: ${returned > 0 ? "не могу найти реальных ЛПР по этим инсайтам" : "инсайты слишком абстрактные"}. Нужно: 1) Конкретная ОТРАСЛЬ (не "разные"), 2) Конкретные ПРИЗНАКИ компаний для поиска, 3) ПОИСКОВЫЕ ЗАПРОСЫ для Firecrawl.`,
+          content: `Конверсия: 0/${queue.length}. Проблемы: ${returned > 0 ? "не могу найти реальных компаний" : "инсайты слишком абстрактные"}. Нужно: конкретная ОТРАСЛЬ + размер компании + ПОИСКОВЫЕ ЗАПРОСЫ.`,
         } as any);
       } catch {}
     }
 
-    // Tell scout what industries produce better leads
     if (leadsCreated > 0) {
       try {
         await supabase.from("agent_feedback").insert({
-          factory: "consulting",
-          from_agent: "marketer",
-          to_agent: "scout",
+          factory: "consulting", from_agent: "marketer", to_agent: "scout",
           feedback_type: "optimization",
-          content: `Успешно создано ${leadsCreated} лидов. Продолжай искать сигналы в тех же отраслях/типах. Лучше всего конвертируются: вакансии (hh.ru), тендеры (zakupki.gov.ru), конкретные компании с болью.`,
+          content: `Создано ${leadsCreated} лидов. Продолжай в тех же отраслях. Лучше конвертируются: вакансии, тендеры, конкретные компании.`,
         } as any);
       } catch {}
     }
+
+    console.log(`[marketer] DONE: ${leadsCreated} leads, ${returned} returned, ${queue.length} processed`);
 
     return new Response(JSON.stringify({ success: true, insights_processed: queue.length, leads_created: leadsCreated, returned_to_analyst: returned, kpi_updated: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
