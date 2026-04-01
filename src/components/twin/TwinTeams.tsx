@@ -179,9 +179,8 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
               <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Мандат</span>
               <div className="flex gap-1">
                 {agent.mandateKey && (
-                  <button onClick={() => setChatOpen(true)} className="flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-purple-800/30 text-purple-400 text-[10px]" title="Диалог с AI для корректировки мандата">
-                    <MessageSquare className="h-3 w-3" />
-                    <span className="hidden sm:inline">Изменить</span>
+                  <button onClick={() => setChatOpen(true)} className="flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-purple-800/30 text-purple-400 text-[10px]" title="Корректировка мандата">
+                    <Pencil className="h-3 w-3" />
                   </button>
                 )}
                 {agent.mandateFull && <button onClick={() => setExp(!exp)} className="p-0.5 rounded hover:bg-slate-800 text-slate-500">{exp ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}</button>}
