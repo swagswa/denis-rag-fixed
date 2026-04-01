@@ -3,216 +3,134 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function notifyOwner(eventType: string, data: any) {
-  try {
-    const url = "https://kuodvlyepoojqimutmvu.supabase.co";
-    const key = "sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS";
-    const res = await fetch(`${url}/functions/v1/notify-owner`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ event_type: eventType, data }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      console.warn("[notify] failed response:", res.status, text);
-    }
-  } catch (e) { console.warn("[notify] failed:", e); }
-}
-
-type ChatMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
-};
-
-type PageContext = {
-  url?: string;
-  title?: string;
-  section?: string;
-};
+type ChatMessage = { role: "user" | "assistant"; content: string };
+type PageContext = { url?: string; title?: string; section?: string };
+type DetectedLead = { name: string | null; phone: string | null; email: string | null; telegram: string | null; message: string };
 
 const DEFAULT_SYSTEM_PROMPT = `Ты — AI-ассистент Дениса Матеева.
 Отвечай по-русски, кратко, по делу, без воды.
 
 ═══ ВАЖНО: КОНТАКТНЫЕ ДАННЫЕ ═══
-Если пользователь оставляет контакт (телефон, email, @telegram, WhatsApp, имя) или просит связаться — 
-НЕ ЗАДАВАЙ ЛИШНИХ ВОПРОСОВ! Ответь ДОСЛОВНО следующий текст (копируй символ в символ, ничего не меняй):
+Если пользователь оставляет контакт (телефон, email, @telegram, WhatsApp, имя) или просит связаться —
+НЕ ЗАДАВАЙ ЛИШНИХ ВОПРОСОВ! Ответь ДОСЛОВНО:
 "Спасибо! Денис свяжется с вами в ближайшее время. Если срочно — напишите ему в Telegram [@deyuma](https://t.me/deyuma)."
-КОПИРУЙ ТОЧНО! Не сокращай слова, не меняй ник. Ник: @deyuma. Ссылка: https://t.me/deyuma.
 И ВСЁ. Не спрашивай "а что именно вас интересует" — человек уже готов общаться.`;
 
-// Quiz trigger — for first message or vague questions
 const QUIZ_TRIGGER = `
 
-═══ КВИЗ-РЕЖИМ (для первого сообщения или размытых вопросов) ═══
-Если пользователь задаёт размытый вопрос ("Чем вы занимаетесь?", "Как AI может помочь?", "Что вы предлагаете?") или это его ПЕРВОЕ сообщение:
-
-Вместо длинного ответа — ЗАПУСТИ МИНИ-КВИЗ (3 вопроса):
+═══ КВИЗ-РЕЖИМ ═══
+Если пользователь задаёт размытый вопрос или это его ПЕРВОЕ сообщение — запусти мини-квиз из 3 вопросов:
 
 "Давай разберёмся, чем конкретно могу помочь! Ответь на 3 быстрых вопроса:
 
 **1. Чем занимается ваша компания?**
-а) E-commerce / маркетплейс
-б) B2B-услуги / консалтинг
-в) IT / разработка
-г) Производство / логистика
-д) Другое — напишите
+а) E-commerce / маркетплейс  б) B2B-услуги / консалтинг  в) IT / разработка  г) Производство / логистика  д) Другое
 
 **2. Сколько человек в команде?**
-а) 1-10
-б) 10-50
-в) 50-200
-г) 200+
+а) 1-10  б) 10-50  в) 50-200  г) 200+
 
 **3. Что больше всего болит?**
-а) Рутинные задачи отнимают время
-б) Клиенты уходят / мало лидов
-в) Нет аналитики — решения наугад
-г) Хочу запустить новый AI-продукт"
+а) Рутинные задачи отнимают время  б) Клиенты уходят / мало лидов  в) Нет аналитики  г) Хочу запустить AI-продукт"
 
-После ответов — дай ПЕРСОНАЛИЗИРОВАННУЮ рекомендацию и предложи созвониться: "Напиши мне @deyuma — покажу на примере, как это работает для вашей ниши."
-`;
+После ответов — дай персонализированную рекомендацию и предложи написать в Telegram @deyuma.`;
 
-// Lead conversion booster — appended after 3+ user messages if @deyuma hasn't been mentioned yet
 const LEAD_BOOSTER = `
 
-═══ СРОЧНО: ВОВЛЕЧЕНИЕ ═══
-В этом диалоге уже 3+ обмена, но ты ещё НЕ предложил связаться.
-СЕЙЧАС мягко, но конкретно предложи продолжить разговор лично:
-«Слушай, это интересная задача. Давай обсудим лично — напиши мне в Телеграм @deyuma, созвонимся на 15 минут.»
-Не навязывай, но ОБЯЗАТЕЛЬНО дай контакт @deyuma в этом ответе.`;
+═══ ВОВЛЕЧЕНИЕ ═══
+В этом диалоге уже 3+ сообщения от пользователя, но ты ещё не предложил связаться.
+В этом ответе мягко предложи продолжить разговор лично и обязательно дай контакт @deyuma.`;
 
-function detectProductContext(pageContext?: PageContext): "general" | "foundry" | "aisovetnik" | "aitransformation" {
-  const joined = `${pageContext?.url || ""} ${pageContext?.title || ""} ${pageContext?.section || ""}`.toLowerCase();
-  if (joined.includes("foundry") || joined.includes("agent-fo")) return "foundry";
-  if (joined.includes("ai-advisor") || joined.includes("aisovetnik") || joined.includes("советник")) return "aisovetnik";
-  if (joined.includes("ai-transformation") || joined.includes("aitransformation") || joined.includes("трансформац")) return "aitransformation";
-  return "general";
-}
+// ═══ HELPERS ═══
 
 function sanitizeMessages(messages: unknown): ChatMessage[] {
   if (!Array.isArray(messages)) return [];
   return messages
     .filter((m) => typeof m === "object" && m !== null)
-    .map((m: any) => ({ role: m.role, content: String(m.content || "") }))
-    .filter((m) => (m.role === "user" || m.role === "assistant" || m.role === "system") && m.content.trim().length > 0);
+    .map((m: any) => ({ role: m.role, content: String(m.content || "").trim() }))
+    .filter((m): m is ChatMessage => (m.role === "user" || m.role === "assistant") && m.content.length > 0);
 }
 
-function shouldBoostLead(messages: ChatMessage[]): boolean {
-  const userCount = messages.filter(m => m.role === "user").length;
-  if (userCount < 3) return false;
-  const alreadyGaveContact = messages.some(
-    m => m.role === "assistant" && m.content.includes("@deyuma")
-  );
-  return !alreadyGaveContact;
+function detectProductContext(pc?: PageContext): string {
+  const j = `${pc?.url || ""} ${pc?.title || ""} ${pc?.section || ""}`.toLowerCase();
+  if (j.includes("foundry") || j.includes("agent-fo")) return "foundry";
+  if (j.includes("ai-advisor") || j.includes("aisovetnik") || j.includes("советник")) return "aisovetnik";
+  if (j.includes("ai-transformation") || j.includes("aitransformation") || j.includes("трансформац")) return "aitransformation";
+  return "general";
 }
 
-// ═══ LEAD DETECTION ═══
-type DetectedLead = {
-  name: string | null;
-  phone: string | null;
-  email: string | null;
-  telegram: string | null;
-  message: string;
-};
+function getSiteId(pc?: PageContext, explicit?: string): string {
+  if (explicit?.trim()) return explicit.trim();
+  const p = detectProductContext(pc);
+  return p === "general" ? "denismateev" : p;
+}
 
-function detectContactInfo(messages: ChatMessage[]): DetectedLead | null {
-  const allUserText = messages
-    .filter(m => m.role === "user")
-    .map(m => m.content)
-    .join("\n");
+function shouldBoostLead(msgs: ChatMessage[]): boolean {
+  const uc = msgs.filter((m) => m.role === "user").length;
+  if (uc < 3) return false;
+  return !msgs.some((m) => m.role === "assistant" && m.content.includes("@deyuma"));
+}
 
-  // Phone patterns: +7, 8, various formats
-  const phoneMatch = allUserText.match(/(?:\+7|8)[\s\-\(]*\d{3}[\s\-\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/);
-  // Email
-  const emailMatch = allUserText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  // Telegram @username
-  const tgMatch = allUserText.match(/@([a-zA-Z0-9_]{4,32})/);
-  // "Свяжитесь", "позвоните", "перезвоните", "напишите мне"
-  const wantsContact = /свяж|позвон|перезвон|напиш.*мн|call.*me|contact.*me|связат/i.test(allUserText);
-
-  const hasContact = phoneMatch || emailMatch || tgMatch;
-
-  if (!hasContact && !wantsContact) return null;
-
-  // Try to extract name from messages
-  const namePatterns = [
-    /меня зовут\s+(\S+)/i,
-    /я\s+[-—]\s*(\S+)/i,
-    /имя\s*[:—-]\s*(\S+)/i,
-    /^(\S+)\s*[,.]?\s*(?:свяж|позвон|перезвон|напиш)/im,
-  ];
+function detectContactInfo(msgs: ChatMessage[]): DetectedLead | null {
+  const txt = msgs.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+  if (!txt.trim()) return null;
+  const phoneMatch = txt.match(/(?:\+7|8)[\s\-\(]*\d{3}[\s\-\)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/);
+  const emailMatch = txt.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const tgMatch = txt.match(/@([a-zA-Z0-9_]{4,32})/);
+  const wantsContact = /свяж|позвон|перезвон|напиш.*мн|call.*me|contact.*me|связат/i.test(txt);
+  if (!phoneMatch && !emailMatch && !tgMatch && !wantsContact) return null;
   let name: string | null = null;
-  for (const p of namePatterns) {
-    const m = allUserText.match(p);
-    if (m) { name = m[1]; break; }
+  for (const p of [/меня зовут\s+([^\s,.\n]+)/i, /я\s+[-—]\s*([^\s,.\n]+)/i, /имя\s*[:—-]\s*([^\s,.\n]+)/i]) {
+    const m = txt.match(p);
+    if (m?.[1]) { name = m[1]; break; }
   }
-
-  return {
-    name,
-    phone: phoneMatch ? phoneMatch[0] : null,
-    email: emailMatch ? emailMatch[0] : null,
-    telegram: tgMatch ? tgMatch[0] : null,
-    message: allUserText.slice(0, 500),
-  };
+  return { name, phone: phoneMatch?.[0] || null, email: emailMatch?.[0] || null, telegram: tgMatch?.[0] || null, message: txt.slice(0, 1000) };
 }
 
-async function resolveSystemPrompt({
-  supabase,
-  pageContext,
-  override,
-  messages,
-}: {
-  supabase: ReturnType<typeof createClient> | null;
-  pageContext?: PageContext;
-  override?: string;
-  messages: ChatMessage[];
-}): Promise<string> {
+async function notifyOwner(eventType: string, data: Record<string, unknown>) {
+  try {
+    const url = Deno.env.get("SUPABASE_URL");
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY");
+    if (!url || !key) { console.warn("[notify] skipped: no SUPABASE_URL/key"); return; }
+    const res = await fetch(`${url}/functions/v1/notify-owner`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ event_type: eventType, data }),
+    });
+    if (!res.ok) { const t = await res.text(); console.warn("[notify]", res.status, t); }
+  } catch (e) { console.warn("[notify] error:", e); }
+}
+
+async function resolveSystemPrompt(supabase: ReturnType<typeof createClient>, siteId: string, msgs: ChatMessage[], override?: string): Promise<string> {
   if (override?.trim()) return override.trim();
-
-  let basePrompt = DEFAULT_SYSTEM_PROMPT;
-
-  if (supabase) {
-    try {
-      const productKey = detectProductContext(pageContext);
-
-      // Try assistant_prompts table first (site_id based)
-      const siteId = productKey === "general" ? "denismateev" : productKey;
-      const { data: promptData } = await supabase
-        .from("assistant_prompts")
-        .select("system_prompt")
-        .eq("site_id", siteId)
-        .eq("active", true)
-        .limit(1)
-        .single();
-
-      if (promptData?.system_prompt?.trim()) {
-        basePrompt = promptData.system_prompt.trim();
-      }
-    } catch (e) {
-      console.warn("Prompt fallback to default:", e);
-    }
-  }
-
-  // Quiz for early/vague conversations
-  const userMessages = messages.filter(m => m.role === "user");
-  if (userMessages.length <= 1) {
-    // But NOT if user already gave contact info
-    const lead = detectContactInfo(messages);
-    if (!lead) {
-      basePrompt += QUIZ_TRIGGER;
-    }
-  }
-
-  // Auto-boost lead generation after 3+ exchanges without @deyuma
-  if (shouldBoostLead(messages)) {
-    basePrompt += LEAD_BOOSTER;
-  }
-
-  return basePrompt;
+  let base = DEFAULT_SYSTEM_PROMPT;
+  try {
+    const { data } = await supabase.from("assistant_prompts").select("system_prompt").eq("site_id", siteId).eq("active", true).limit(1);
+    if (data?.[0]?.system_prompt?.trim()) base = data[0].system_prompt.trim();
+  } catch (e) { console.warn("Prompt fallback:", e); }
+  const userMsgs = msgs.filter((m) => m.role === "user");
+  if (userMsgs.length <= 1 && !detectContactInfo(msgs)) base += QUIZ_TRIGGER;
+  if (shouldBoostLead(msgs)) base += LEAD_BOOSTER;
+  return base;
 }
+
+async function saveConversation(supabase: ReturnType<typeof createClient>, visitorId: string, siteId: string, msgs: Array<{ role: string; content: string }>) {
+  try {
+    const { data: rows } = await supabase.from("conversations").select("id,messages").eq("visitor_id", visitorId).eq("site_id", siteId).order("updated_at", { ascending: false }).limit(1);
+    if (rows?.[0]?.id) {
+      await supabase.from("conversations").update({ messages: msgs, updated_at: new Date().toISOString() }).eq("id", rows[0].id);
+      console.log("Conversation updated:", visitorId.slice(0, 8));
+    } else {
+      await supabase.from("conversations").insert({ messages: msgs, site_id: siteId, visitor_id: visitorId });
+      console.log("Conversation created:", visitorId.slice(0, 8));
+    }
+  } catch (e) { console.warn("Conversation save error:", e); }
+}
+
+// ═══ MAIN ═══
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -222,193 +140,120 @@ serve(async (req) => {
     const messages = sanitizeMessages(body?.messages);
 
     if (messages.length === 0) {
-      return new Response(JSON.stringify({ error: "messages are required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(JSON.stringify({ error: "messages are required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // ═══ AI PROVIDER: use OPENAI_API_KEY (your Supabase secret) ═══
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) {
+      return new Response(JSON.stringify({ error: "OPENAI_API_KEY not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Connect to ORIGINAL Supabase (NOT Lovable Cloud) for DB operations
-    const ORIGINAL_SUPABASE_URL = "https://kuodvlyepoojqimutmvu.supabase.co";
-    const ORIGINAL_ANON_KEY = "sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS";
+    // ═══ SUPABASE: use env vars (auto-provided) ═══
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseKey) {
+      return new Response(JSON.stringify({ error: "SUPABASE_URL or key not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const supabase = createClient(ORIGINAL_SUPABASE_URL, ORIGINAL_ANON_KEY);
+    const pageContext: PageContext | undefined = typeof body?.pageContext === "object" ? body.pageContext : undefined;
+    const visitorId = String(body?.sessionId || body?.visitorId || crypto.randomUUID());
+    const siteId = getSiteId(pageContext, typeof body?.site_id === "string" ? body.site_id : undefined);
 
-    const systemPrompt = await resolveSystemPrompt({
-      supabase,
-      pageContext: body?.pageContext,
-      override: typeof body?.system_prompt_override === "string" ? body.system_prompt_override : undefined,
-      messages,
-    });
-
-    // ═══ SAVE CONVERSATION ═══
-    const sessionId = body?.sessionId || crypto.randomUUID();
-    const pageUrl = body?.pageContext?.url || null;
-    const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
-
-    // ═══ NOTIFY: New conversation started (first message only) ═══
-    const userMessages = messages.filter(m => m.role === "user");
+    // ═══ NOTIFY on first message ═══
+    const userMessages = messages.filter((m) => m.role === "user");
     if (userMessages.length === 1) {
       await notifyOwner("new_conversation", {
-        site_id: pageUrl || "unknown",
-        visitor_id: sessionId?.slice(0, 8),
-        first_message: userMessages[0].content?.slice(0, 200),
+        site_id: siteId,
+        visitor_id: visitorId.slice(0, 8),
+        first_message: userMessages[0].content.slice(0, 200),
       });
     }
 
-    // ═══ LEAD DETECTION & SAVE ═══
-    if (supabase) {
-      const lead = detectContactInfo(messages);
-      if (lead) {
-        try {
-          const contactKey = lead.phone || lead.email || lead.telegram || sessionId;
-          const { data: existingLead } = await supabase
-            .from("leads")
-            .select("id")
-            .or(`message.ilike.%${contactKey}%`)
-            .limit(1);
-
-          if (!existingLead || existingLead.length === 0) {
-            const leadSummary = [
-              lead.phone ? `📞 ${lead.phone}` : null,
-              lead.email ? `📧 ${lead.email}` : null,
-              lead.telegram ? `💬 ${lead.telegram}` : null,
-            ].filter(Boolean).join(" | ");
-
-            const siteId = pageUrl?.includes("foundry") ? "foundry" : "denismateev";
-            const { error: leadErr } = await supabase.from("leads").insert({
-              name: lead.name,
-              message: lead.message,
-              lead_summary: leadSummary || "Запрос на связь из чата",
-              topic_guess: siteId === "foundry" ? "AI-продукт" : "Консалтинг/автоматизация",
-              status: "new",
-            });
-
-            if (leadErr) {
-              console.warn("Lead insert error:", leadErr.message);
-            } else {
-              console.log("Lead captured:", leadSummary);
-              await notifyOwner("new_lead", {
-                name: lead.name, company_name: lead.company || "",
-                role: "", topic_guess: siteId === "foundry" ? "AI-продукт" : "Консалтинг",
-                lead_summary: leadSummary,
-              });
-            }
-          }
-        } catch (e) {
-          console.warn("Lead save error (non-fatal):", e);
+    // ═══ LEAD DETECTION ═══
+    const lead = detectContactInfo(messages);
+    if (lead) {
+      try {
+        const { data: existing } = await supabase.from("leads").select("id").eq("message", lead.message).limit(1);
+        if (!existing || existing.length === 0) {
+          const summary = [lead.phone ? `📞 ${lead.phone}` : null, lead.email ? `📧 ${lead.email}` : null, lead.telegram ? `💬 ${lead.telegram}` : null].filter(Boolean).join(" | ");
+          const { error: err } = await supabase.from("leads").insert({
+            name: lead.name, message: lead.message,
+            lead_summary: summary || "Запрос на связь из чата",
+            topic_guess: siteId === "foundry" ? "AI-продукт" : "Консалтинг/автоматизация",
+            status: "pending_approval",
+          });
+          if (!err) await notifyOwner("new_lead", { company_name: "—", name: lead.name || "—", role: "—", topic_guess: siteId === "foundry" ? "AI-продукт" : "Консалтинг", lead_summary: summary });
         }
-      }
+      } catch (e) { console.warn("Lead save error:", e); }
     }
 
-    const chosenModel = "openai/gpt-5.2";
+    // ═══ SYSTEM PROMPT ═══
+    const systemPrompt = await resolveSystemPrompt(supabase, siteId, messages, typeof body?.system_prompt_override === "string" ? body.system_prompt_override : undefined);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // ═══ CALL OPENAI DIRECTLY ═══
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: chosenModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
+        model: "gpt-4o-mini",
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
         stream: true,
       }),
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Слишком много запросов, попробуйте позже" }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Закончились кредиты AI" }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const text = await response.text();
-      console.error("chat gateway error:", response.status, text);
-      return new Response(JSON.stringify({ error: "Ошибка AI" }), {
-        status: 500,
+    if (!aiResponse.ok || !aiResponse.body) {
+      const t = await aiResponse.text().catch(() => "");
+      console.error("OpenAI error:", aiResponse.status, t);
+      return new Response(JSON.stringify({ error: t || `OpenAI error ${aiResponse.status}` }), {
+        status: aiResponse.status >= 400 ? aiResponse.status : 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Stream response to client while collecting full AI text for DB save
-    let aiTextCollector = "";
+    // ═══ STREAM + SAVE ═══
+    let aiText = "";
     const decoder = new TextDecoder();
-    const encoder = new TextEncoder();
+    let sseBuffer = "";
 
-    const transformStream = new TransformStream({
-      transform(chunk, controller) {
-        // Pass chunk through to client
-        controller.enqueue(chunk);
-
-        // Also collect text for saving
-        const text = decoder.decode(chunk, { stream: true });
-        const lines = text.split("\n");
-        for (const line of lines) {
-          if (line.startsWith("data: ") && !line.includes("[DONE]")) {
-            try {
-              const json = JSON.parse(line.slice(6));
-              const content = json?.choices?.[0]?.delta?.content;
-              if (content) aiTextCollector += content;
-            } catch { /* skip */ }
-          }
+    const transform = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, ctrl) {
+        ctrl.enqueue(chunk);
+        sseBuffer += decoder.decode(chunk, { stream: true });
+        let idx: number;
+        while ((idx = sseBuffer.indexOf("\n")) !== -1) {
+          let line = sseBuffer.slice(0, idx);
+          sseBuffer = sseBuffer.slice(idx + 1);
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (!line.startsWith("data: ")) continue;
+          const j = line.slice(6).trim();
+          if (!j || j === "[DONE]") continue;
+          try { const p = JSON.parse(j); const c = p?.choices?.[0]?.delta?.content; if (typeof c === "string") aiText += c; } catch { sseBuffer = line + "\n" + sseBuffer; break; }
         }
       },
       async flush() {
-        // Save conversation to DB after stream completes
-        if (supabase && lastUserMessage && aiTextCollector) {
-          try {
-            const { error: convErr } = await supabase.from("conversations").insert({
-              user_message: lastUserMessage,
-              ai_message: aiTextCollector,
-              page: pageUrl,
-              session_id: sessionId,
-            });
-            if (convErr) {
-              console.warn("Conversation insert error:", convErr.message);
-            } else {
-              console.log("Conversation saved, session:", sessionId.slice(0, 8));
-            }
-          } catch (e) {
-            console.warn("Conversation save error (non-fatal):", e);
+        try {
+          sseBuffer += decoder.decode();
+          for (let line of sseBuffer.split("\n")) {
+            if (line.endsWith("\r")) line = line.slice(0, -1);
+            if (!line.startsWith("data: ")) continue;
+            const j = line.slice(6).trim();
+            if (!j || j === "[DONE]") continue;
+            try { const p = JSON.parse(j); const c = p?.choices?.[0]?.delta?.content; if (typeof c === "string") aiText += c; } catch {}
           }
-        }
+          if (aiText.trim()) {
+            await saveConversation(supabase, visitorId, siteId, [...messages, { role: "assistant", content: aiText.trim() }]);
+          }
+        } catch (e) { console.warn("flush error:", e); }
       },
     });
 
-    return new Response(response.body!.pipeThrough(transformStream), {
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
+    return new Response(aiResponse.body.pipeThrough(transform), {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
     });
   } catch (e) {
     console.error("chat error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
