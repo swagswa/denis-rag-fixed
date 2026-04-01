@@ -1,4 +1,4 @@
-// builder-run v2 — fixed stage column
+// builder-run v3 — FIXED: source_index, parse resilience, logging
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -12,6 +12,14 @@ function compactText(value: unknown, max = 900) {
   return value.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function resolveIndex(raw: unknown, queueLen: number): number | null {
+  const idx = Number(raw);
+  if (!Number.isInteger(idx)) return null;
+  if (idx >= 1 && idx <= queueLen) return idx - 1;
+  if (idx >= 0 && idx < queueLen) return idx;
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -20,17 +28,10 @@ serve(async (req) => {
     if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
 
     let triggeredBy = "cron";
-    try {
-      const reqBody = await req.clone().json();
-      triggeredBy = reqBody?.triggered_by || "cron";
-    } catch { /* no body */ }
+    try { triggeredBy = (await req.clone().json())?.triggered_by || "cron"; } catch {}
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // Load flow settings for mandate
     const { data: flows } = await supabase
       .from("factory_flows")
       .select("target_industry, target_region, target_notes")
@@ -41,7 +42,6 @@ serve(async (req) => {
     const mandateIndustry = flows?.map((f: any) => f.target_industry).filter(Boolean).join(", ") || "e-com, маркетплейсы, AI-сервисы";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
-    // ═══ SELF-OPTIMIZATION: KPI check ═══
     const { data: kpiGoals } = await supabase
       .from("agent_kpi")
       .select("id, factory, metric, target, current")
@@ -55,16 +55,12 @@ serve(async (req) => {
     if (kpiGap > 0) {
       selfOptimizationPrompt = `
 ═══ 🚨 САМООПТИМИЗАЦИЯ БИЛДЕРА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
-Осталось создать ${kpiGap} проектов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
-АДАПТАЦИЯ:
-${isUrgent ? "- Будь менее строгим: принимай идеи с ЧАСТИЧНЫМИ доказательствами спроса" : "- Расширь критерии: рассмотри идеи из СМЕЖНЫХ отраслей"}
-- Даже если MVP сложноват — можно начать с УПРОЩЁННОЙ версии
-- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Нужны НИШЕВЫЕ идеи для конкретных отраслей (медицина, логистика, агро). С доказательствами спроса: Вордстат, Авито, TG-обсуждения."
-- РЕКОМЕНДАЦИИ СКАУТУ: "Ищи зарубежные стартапы в нишах: ${mandateIndustry}. Особенно те, у которых НЕТ аналога в РФ."
+Осталось создать ${kpiGap} проектов до KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
+- ${isUrgent ? "Будь менее строгим: принимай идеи с ЧАСТИЧНЫМИ доказательствами спроса" : "Расширь критерии: смежные отрасли тоже OK"}
+- МИНИМУМ 50% инсайтов должны стать проектами
 `;
     }
 
-    // Builder получает ТОЛЬКО квалифицированные инсайты от Аналитика
     const { data: insights, error: insightsError } = await supabase
       .from("insights")
       .select("id, title, company_name, what_happens, why_important, problem, action_proposal, opportunity_type, signal_id")
@@ -74,14 +70,12 @@ ${isUrgent ? "- Будь менее строгим: принимай идеи с
       .limit(10);
 
     if (insightsError) throw insightsError;
-
     if (!insights || insights.length === 0) {
       return new Response(JSON.stringify({ success: true, message: "No new foundry insights to process" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const insightIds = insights.map((i: any) => i.id);
     const { data: existingOpps } = await supabase
       .from("startup_opportunities")
       .select("insight_id, idea")
@@ -91,14 +85,11 @@ ${isUrgent ? "- Будь менее строгим: принимай идеи с
     const alreadyProcessed = new Set((existingOpps || []).filter((o: any) => o.insight_id).map((o: any) => o.insight_id));
     const existingIdeas = (existingOpps || []).map((o: any) => (o.idea || "").toLowerCase()).filter(Boolean);
 
-    // ═══ BANNED CATEGORIES — auto-reject insights about oversaturated niches ═══
     const BANNED_KEYWORDS = [
       "prompt marketplace", "платформа для промтов", "prompt engineering", "prompt platform",
-      "монетизация промтов", "prompt monetization", "prompt store", "prompt library",
-      "chatgpt обёртка", "chatgpt wrapper", "ai ассистент общего", "generic ai assistant",
-      "ai копирайтер", "ai copywriter", "ai writer", "генератор контента",
-      "betterprompt", "promptbase", "промт платформа", "промт маркетплейс",
-      "prompt optimization", "prompt tuning", "prompt builder",
+      "монетизация промтов", "chatgpt обёртка", "chatgpt wrapper", "ai ассистент общего",
+      "generic ai assistant", "ai копирайтер", "ai copywriter", "генератор контента",
+      "промт маркетплейс", "prompt optimization", "prompt builder",
     ];
 
     function isBannedIdea(title: string, description: string): boolean {
@@ -111,64 +102,55 @@ ${isUrgent ? "- Будь менее строгим: принимай идеи с
       if (words.length === 0) return false;
       return existingIdeas.some(existing => {
         const matchCount = words.filter(w => existing.includes(w)).length;
-        return matchCount / words.length > 0.5; // >50% word overlap = duplicate
+        return matchCount / words.length > 0.5;
       });
     }
-    const queue = insights.filter((i: any) => !alreadyProcessed.has(i.id));
 
+    const queue = insights.filter((i: any) => !alreadyProcessed.has(i.id));
     if (queue.length === 0) {
       return new Response(JSON.stringify({ success: true, message: "All foundry insights already processed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Build dedup context for GPT
-    const existingIdeasBrief = existingIdeas.length > 0
-      ? `\n\nУЖЕ СУЩЕСТВУЮЩИЕ ПРОЕКТЫ (НЕ ДУБЛИРУЙ!):\n${existingIdeas.slice(0, 20).map((idea, i) => `${i + 1}. ${idea}`).join("\n")}`
-      : "";
-
-    const brief = queue
-      .map((i: any, idx: number) => `#${idx + 1}
-title: ${i.title}
-what_happens: ${i.what_happens}
-why_important: ${i.why_important || "(не указано)"}
-problem: ${i.problem || "(не указана)"}
-action_proposal: ${i.action_proposal || "(не указано)"}`)
-      .join("\n\n");
-
-    // ═══ PRE-FILTER: reject banned/duplicate insights before sending to AI ═══
+    // Pre-filter banned/duplicate
     let returned = 0;
     let oppsCreated = 0;
     const filteredQueue: typeof queue = [];
     for (const insight of queue) {
       const title = (insight as any).title || "";
       const desc = (insight as any).what_happens || "";
-      
+
       if (isBannedIdea(title, desc)) {
-        console.log(`[builder] BANNED category: "${title}"`);
-        await supabase.from("insights").update({ status: "returned", notes: "Билдер: запрещённая/перенасыщенная категория (prompt platform, generic AI tool и т.п.)", updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
-        try { await supabase.from("agent_feedback").insert({ factory: "foundry", from_agent: "builder", to_agent: "analyst", feedback_type: "banned_category", content: `"${title}" — запрещённая категория. НЕ присылай: prompt platforms, generic AI tools, AI копирайтеры. Нужны НИШЕВЫЕ идеи для конкретной отрасли.` } as any); } catch {}
+        console.log(`[builder] BANNED: "${title}"`);
+        await supabase.from("insights").update({ status: "returned", notes: "Билдер: запрещённая категория.", updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
+        try { await supabase.from("agent_feedback").insert({ factory: "foundry", from_agent: "builder", to_agent: "analyst", feedback_type: "banned_category", content: `"${title}" — запрещённая категория.` } as any); } catch {}
         returned++;
         continue;
       }
-      
+
       if (isSimilarToExisting(title)) {
-        console.log(`[builder] DUPLICATE idea: "${title}"`);
-        await supabase.from("insights").update({ status: "returned", notes: `Билдер: идея слишком похожа на уже существующий проект.`, updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
+        console.log(`[builder] DUPLICATE: "${title}"`);
+        await supabase.from("insights").update({ status: "returned", notes: "Билдер: дубликат существующего проекта.", updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
         returned++;
         continue;
       }
-      
+
       filteredQueue.push(insight);
     }
 
     if (filteredQueue.length === 0) {
-      return new Response(JSON.stringify({ success: true, insights_processed: queue.length, opportunities_created: 0, returned_to_analyst: returned, message: "All insights filtered out (banned/duplicate)" }), {
+      return new Response(JSON.stringify({ success: true, insights_processed: queue.length, opportunities_created: 0, returned_to_analyst: returned, message: "All filtered out" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Rebuild brief with filtered queue
+    console.log(`[builder] Processing ${filteredQueue.length} insights: ${filteredQueue.map((i: any) => i.title).join("; ")}`);
+
+    const existingIdeasBrief = existingIdeas.length > 0
+      ? `\n\nУЖЕ СУЩЕСТВУЮЩИЕ ПРОЕКТЫ (НЕ ДУБЛИРУЙ!):\n${existingIdeas.slice(0, 20).map((idea, i) => `${i + 1}. ${idea}`).join("\n")}`
+      : "";
+
     const filteredBrief = filteredQueue
       .map((i: any, idx: number) => `#${idx + 1}
 title: ${i.title}
@@ -178,109 +160,71 @@ problem: ${i.problem || "(не указана)"}
 action_proposal: ${i.action_proposal || "(не указано)"}`)
       .join("\n\n");
 
-    const prompt = `Ты — AI-создатель (builder) стартапов для рынка России и СНГ. Ты СТРОИШЬ MVP AI-сервисов за 2 недели. В ОДНОГО. Без команды.
+    const prompt = `Ты — AI-создатель (builder) стартапов для РФ/СНГ. Строишь MVP за 2 недели. В одного.
 
-МАНДАТ (ЖЁСТКИЙ — нарушение = автоматический отказ):
-- Отрасль: ${mandateIndustry}. Идеи ВНЕ этих отраслей — автоматический ОТКАЗ.
+МАНДАТ:
+- Отрасль: ${mandateIndustry}. Идеи ВНЕ — отказ.
 - Регион: ${mandateRegion}
-- Если идея дублирует уже существующий проект — автоматический ОТКАЗ.
-- 🚫 ЗАПРЕЩЕНЫ: prompt platforms, generic AI assistants, AI copywriters, ChatGPT wrappers — это перенасыщенные категории.
+- 🚫 ЗАПРЕЩЕНЫ: prompt platforms, generic AI, ChatGPT wrappers
 ${existingIdeasBrief}
 
-ТЫ ПОЛУЧАЕШЬ КВАЛИФИЦИРОВАННЫЕ ИНСАЙТЫ от Аналитика. Каждый уже прошёл фильтр.
-Твоя задача — оценить: МОЖЕШЬ ЛИ ТЫ РЕАЛЬНО ЭТО ПОСТРОИТЬ за 2 недели и начать продавать?
+СТЕК: React/Vite + Supabase + AI API (OpenAI/Gemini).
+МОЖЕШЬ: веб-приложения, TG-боты, SaaS, AI-инструменты, лендинги с оплатой.
+НЕ МОЖЕШЬ: мобильные, интеграции с 1С/SAP, железо, оффлайн.
 
-ТЕХНИЧЕСКИЙ СТЕК: React/Vite + Supabase (Edge Functions, Postgres, Auth, Storage) + AI API (OpenAI/Gemini). 
-ТЫ НЕ МОЖЕШЬ: мобильные приложения, сложные интеграции с 1С/SAP, железо, оффлайн.
-ТЫ МОЖЕШЬ: веб-приложения, Telegram-боты, SaaS-панели, AI-инструменты, лендинги с оплатой, чат-боты.
-
-КРИТИЧЕСКИ ВАЖНО — ВАЛИДАЦИЯ СПРОСА В РФ:
-Аналитик уже указал доказательства спроса. Ты ПРОВЕРЯЕШЬ их и ДОПОЛНЯЕШЬ:
-✅ Есть ли РЕАЛЬНЫЕ люди/компании в РФ, которые СЕЙЧАС ищут это решение?
-✅ Какие запросы они делают? (Вордстат, Авито, TG)
-✅ Есть ли уже аналоги в РФ? Если да — чем мы лучше?
-✅ Готовы ли они ПЛАТИТЬ? (не просто "интересно", а реально потратят деньги)
-
-КРИТЕРИИ ПРИНЯТИЯ (ВСЕ должны быть выполнены):
-1. ✅ ТЫ понимаешь КАК это построить технически (конкретные компоненты, API, таблицы БД)
-2. ✅ ТЫ можешь сделать рабочий MVP за 2 недели (не прототип — рабочий продукт)
-3. ✅ Есть понятный канал для первых 10 клиентов В РОССИИ
-4. ✅ Цена адекватна рынку РФ/СНГ (не американские $99/mo для российского малого бизнеса)
-5. ✅ ПОДТВЕРЖДЁННЫЙ спрос в РФ (конкретные доказательства, не "наверное нужно")
-
-ЕСЛИ ПРИНИМАЕШЬ — готовь КОНКРЕТНЫЙ ПЛАН ДЕЙСТВИЙ:
+ЕСЛИ ПРИНИМАЕШЬ:
 {
-  "source_index": 1,
+  "source_index": N,
   "accepted": true,
-  "idea": "Название продукта",
-  "problem": "Боль ЦА одним предложением",
+  "idea": "Название",
+  "problem": "Боль ЦА",
   "solution": "Что делает продукт",
-  "target_audience": "Кто платит (в РФ/СНГ)",
-  "demand_proof": "КОНКРЕТНЫЕ доказательства спроса в РФ: Вордстат X запросов/мес, на Авито Y объявлений, в TG-канале Z обсуждения, на vc.ru N статей про эту боль",
-  "competitors_ru": "Аналоги в РФ (если есть) и чем мы лучше",
-  "pricing": "Цена в ₽ (адекватная рынку РФ)",
+  "target_audience": "Кто платит в РФ",
+  "demand_proof": "Доказательства спроса: Вордстат, Авито, TG, vc.ru",
+  "competitors_ru": "Аналоги в РФ и чем мы лучше",
+  "pricing": "Цена в ₽",
   "market": "Размер рынка РФ/СНГ",
-  "monetization": "Модель монетизации",
+  "monetization": "Модель",
   "complexity": "low|medium",
   "revenue_estimate": 2400000,
-  "mvp_timeline": "2 недели",
   "mvp_plan": {
     "week1": ["День 1-2: ...", "День 3-4: ...", "День 5: ..."],
-    "week2": ["День 6-7: ...", "День 8-9: ...", "День 10: запуск + первые клиенты"]
+    "week2": ["День 6-7: ...", "День 8-9: ...", "День 10: запуск"]
   },
-  "tech_stack": "React + Supabase + Telegram Bot API + OpenAI",
-  "first_10_customers": "Конкретный план В РОССИИ: 1) Пост в TG-канал X. 2) Объявление на Авито. 3) ...",
-  "approval_request": "СТРОЮ: [Название]. ДЛЯ: [ЦА в РФ]. БОЛЬ: [проблема]. СПРОС: [доказательства]. ЦЕНА: [X ₽/мес]. MVP за 2 недели. Первые клиенты через [каналы]. Потенциал: [X ₽/мес через 6 мес]. ОДОБРЯЕШЬ?"
+  "tech_stack": "React + Supabase + ...",
+  "first_10_customers": "План привлечения в РФ",
+  "approval_request": "СТРОЮ: [Название]. ДЛЯ: [ЦА]. БОЛЬ: [X]. СПРОС: [Y]. ЦЕНА: [Z ₽/мес]. MVP 2 нед. Потенциал: [₽/мес]. ОДОБРЯЕШЬ?"
 }
 
 ЕСЛИ НЕ ПРИНИМАЕШЬ:
-{
-  "source_index": 1,
-  "accepted": false,
-  "reason": "Конкретная причина: нет подтверждённого спроса в РФ / не могу построить за 2 недели / цена неадекватна рынку / ..."
-}
+{"source_index": N, "accepted": false, "reason": "причина"}
 
 ПРАВИЛА:
-1) Будь ЖЁСТКИМ критиком. Принимай ТОЛЬКО то, что РЕАЛЬНО можешь построить и продать В РОССИИ.
-2) revenue_estimate — ГОДОВАЯ оценка в ₽.
-3) demand_proof — ОБЯЗАТЕЛЬНОЕ поле. Без конкретных доказательств спроса — НЕ ПРИНИМАЙ.
-4) mvp_plan — КОНКРЕТНЫЙ по дням.
-5) Верни строго JSON-массив без markdown.
+1. source_index — номер инсайта (#1 → source_index:1, #2 → 2...)
+2. revenue_estimate — ГОДОВАЯ в ₽
+3. МИНИМУМ 50% должны стать проектами
+4. Верни JSON-массив. Без markdown. Ответь РОВНО по количеству инсайтов.
 ${selfOptimizationPrompt}
 ИНСАЙТЫ:
 ${filteredBrief}`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
-      }),
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: prompt }], temperature: 0.3 }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("AI error:", response.status, errText);
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limits exceeded" }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required" }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+      console.error("[builder] AI error:", response.status, errText.slice(0, 200));
+      if (response.status === 429) return new Response(JSON.stringify({ error: "Rate limits" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (response.status === 402) return new Response(JSON.stringify({ error: "Payment required" }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       throw new Error("AI gateway error");
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || "";
+    console.log(`[builder] GPT raw (first 800): ${content.slice(0, 800)}`);
 
     let aiItems: any[] = [];
     try {
@@ -290,72 +234,56 @@ ${filteredBrief}`;
       aiItems = JSON.parse(cleaned);
       if (!Array.isArray(aiItems)) aiItems = [aiItems];
     } catch {
-      console.error("Failed to parse builder JSON:", content.slice(0, 500));
-      return new Response(JSON.stringify({
-        success: true, insights_processed: queue.length,
-        opportunities_created: 0, returned_to_analyst: 0,
-        parse_warning: "AI returned non-JSON response",
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      console.error("[builder] Parse error. Raw:", content.slice(0, 500));
+      // Fallback: mark as returned so they don't loop
+      for (const insight of filteredQueue) {
+        await supabase.from("insights").update({ status: "returned", notes: "Билдер: ошибка парсинга GPT.", updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
+      }
+      return new Response(JSON.stringify({ success: true, insights_processed: queue.length, opportunities_created: 0, returned_to_analyst: returned + filteredQueue.length, parse_error: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    // Note: oppsCreated starts fresh; 'returned' already has pre-filter count from above
+    const processedIds = new Set<string>();
 
     for (const item of aiItems) {
-      const sourceIndex = Number(item?.source_index);
-      if (!Number.isInteger(sourceIndex) || sourceIndex < 1 || sourceIndex > filteredQueue.length) continue;
+      const qIdx = resolveIndex(item?.source_index, filteredQueue.length);
+      if (qIdx === null) {
+        console.log(`[builder] Skipping invalid source_index: ${item?.source_index}`);
+        continue;
+      }
 
-      const insight = filteredQueue[sourceIndex - 1] as any;
-      if (!insight) continue;
+      const insight = filteredQueue[qIdx] as any;
+      if (!insight || processedIds.has(insight.id)) continue;
+      processedIds.add(insight.id);
 
       if (item.accepted) {
-        // ═══ VALIDATION: Reject without demand proof ═══
         const demandProof = compactText(item.demand_proof, 500);
         if (!demandProof || demandProof.length < 20) {
-          console.log(`Skipping opportunity: no demand proof for "${item.idea}"`);
-          await supabase
-            .from("insights")
-            .update({
-              status: "returned",
-              notes: "Билдер: принял идею, но нет конкретных доказательств спроса в РФ. Нужны данные: Вордстат, Авито, TG.",
-              updated_at: new Date().toISOString(),
-            } as any)
-            .eq("id", insight.id);
-
-          try {
-            await supabase.from("agent_feedback").insert({
-              factory: "foundry",
-              from_agent: "builder",
-              to_agent: "analyst",
-              feedback_type: "quality_issue",
-              content: `Идея "${item.idea}" — нет доказательств спроса в РФ. Аналитик должен приводить конкретные данные: Вордстат цифры, обсуждения в TG, посты на vc.ru.`,
-              insight_id: insight.id,
-            } as any);
-          } catch (e: any) { console.error("Feedback insert error:", e); }
-
+          console.log(`[builder] No demand proof: "${item.idea}"`);
+          await supabase.from("insights").update({ status: "returned", notes: "Билдер: нет доказательств спроса в РФ.", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+          try { await supabase.from("agent_feedback").insert({ factory: "foundry", from_agent: "builder", to_agent: "analyst", feedback_type: "quality_issue", content: `"${item.idea}" — нет доказательств спроса. Нужен Вордстат, TG, vc.ru.`, insight_id: insight.id } as any); } catch {}
           returned++;
           continue;
         }
 
-        const approvalText = compactText(item.approval_request, 400) ||
-          `${item.idea}: ${item.monetization} для ${item.target_audience}. Revenue: ${item.revenue_estimate} ₽/год. Запускаем?`;
-
+        const approvalText = compactText(item.approval_request, 400) || `${item.idea}: ${item.monetization}. Revenue: ${item.revenue_estimate} ₽/год.`;
         const mvpPlanText = item.mvp_plan
-          ? `\n📅 ПЛАН MVP:\nНеделя 1: ${(item.mvp_plan.week1 || []).join(", ")}\nНеделя 2: ${(item.mvp_plan.week2 || []).join(", ")}`
+          ? `\n📅 ПЛАН:\nНед 1: ${(item.mvp_plan.week1 || []).join(", ")}\nНед 2: ${(item.mvp_plan.week2 || []).join(", ")}`
           : "";
 
         const detailedNotes = [
           `🎯 ЦА: ${item.target_audience}`,
-          `📊 СПРОС В РФ: ${demandProof}`,
-          `🏆 КОНКУРЕНТЫ РФ: ${item.competitors_ru || "не найдены"}`,
+          `📊 СПРОС: ${demandProof}`,
+          `🏆 КОНКУРЕНТЫ: ${item.competitors_ru || "не найдены"}`,
           `💰 ЦЕНА: ${item.pricing}`,
           `🔧 СТЕК: ${item.tech_stack || "React + Supabase"}`,
-          `📦 MVP (2 нед): ${item.solution}`,
+          `📦 MVP: ${item.solution}`,
           mvpPlanText,
-          `🚀 ПЕРВЫЕ 10 КЛИЕНТОВ: ${item.first_10_customers}`,
+          `🚀 ПЕРВЫЕ 10: ${item.first_10_customers}`,
           `📊 РЫНОК: ${item.market}`,
           `💵 REVENUE: ${item.revenue_estimate} ₽/год`,
-          ``,
-          `✅ ЗАПРОС НА ОДОБРЕНИЕ: ${approvalText}`,
+          ``, `✅ ${approvalText}`,
         ].filter(Boolean).join("\n");
 
         const { error: oppError } = await supabase.from("startup_opportunities").insert({
@@ -372,83 +300,43 @@ ${filteredBrief}`;
           insight_id: insight.id,
         } as any);
 
-        if (oppError) {
-          console.error("Opportunity insert error:", oppError);
-          continue;
-        }
-
-        await supabase
-          .from("insights")
-          .update({ status: "processed", updated_at: new Date().toISOString() } as any)
-          .eq("id", insight.id);
-
+        if (oppError) { console.error("[builder] Insert error:", oppError); continue; }
+        await supabase.from("insights").update({ status: "processed", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
         oppsCreated++;
+        console.log(`[builder] ✅ Created: "${item.idea}"`);
       } else {
         const reason = compactText(item.reason, 300);
-        await supabase
-          .from("insights")
-          .update({
-            status: "returned",
-            notes: `Билдер: ${reason}`,
-            updated_at: new Date().toISOString(),
-          } as any)
-          .eq("id", insight.id);
-
-        // ═══ Feedback loop: сообщаем аналитику и скауту ═══
-        try {
-          await supabase.from("agent_feedback").insert({
-            factory: "foundry",
-            from_agent: "builder",
-            to_agent: "analyst",
-            feedback_type: "rejection_reason",
-            content: `Отклонил идею "${insight.title}": ${reason}. Нужны идеи с подтверждённым спросом в РФ, реализуемые за 2 недели.`,
-            insight_id: insight.id,
-            signal_id: insight.signal_id || null,
-          } as any);
-        } catch (e: any) { console.error("Feedback insert error:", e); }
-
+        await supabase.from("insights").update({ status: "returned", notes: `Билдер: ${reason}`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+        try { await supabase.from("agent_feedback").insert({ factory: "foundry", from_agent: "builder", to_agent: "analyst", feedback_type: "rejection_reason", content: `"${insight.title}": ${reason}`, insight_id: insight.id, signal_id: insight.signal_id || null } as any); } catch {}
         returned++;
+        console.log(`[builder] ❌ Rejected: "${insight.title}" — ${reason}`);
       }
     }
 
-    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    // Mark unprocessed insights to avoid infinite loop
+    for (const insight of filteredQueue) {
+      if (!processedIds.has((insight as any).id)) {
+        await supabase.from("insights").update({ status: "returned", notes: "Билдер: GPT не вернул результат.", updated_at: new Date().toISOString() } as any).eq("id", (insight as any).id);
+        returned++;
+        console.log(`[builder] ⚠️ Unprocessed: "${(insight as any).title}"`);
+      }
+    }
+
     if (myKpi && oppsCreated > 0) {
       await supabase.from("agent_kpi").update({ current: (myKpi.current || 0) + oppsCreated, updated_at: new Date().toISOString() }).eq("id", myKpi.id);
     }
 
-    // Feedback to analyst if conversion is low
     if (filteredQueue.length >= 2 && oppsCreated === 0) {
-      try {
-        await supabase.from("agent_feedback").insert({
-          factory: "foundry",
-          from_agent: "builder",
-          to_agent: "analyst",
-          feedback_type: "optimization",
-          content: `Конверсия foundry-инсайтов: 0/${filteredQueue.length}. Нужны идеи: 1) Технически реализуемые за 2 недели (React + Supabase + AI API), 2) С доказательствами спроса в РФ (Вордстат, Авито, TG), 3) НИШЕВЫЕ (не generic AI tools). Лучше всего: боты для конкретной отрасли, SaaS-инструменты, автоматизация процессов.`,
-        } as any);
-      } catch {}
+      try { await supabase.from("agent_feedback").insert({ factory: "foundry", from_agent: "builder", to_agent: "analyst", feedback_type: "optimization", content: `Конверсия: 0/${filteredQueue.length}. Нужны нишевые идеи с доказательствами спроса в РФ, реализуемые за 2 нед.` } as any); } catch {}
     }
 
-    // Feedback to scout about what types of signals convert best
     if (oppsCreated > 0) {
-      try {
-        await supabase.from("agent_feedback").insert({
-          factory: "foundry",
-          from_agent: "builder",
-          to_agent: "scout",
-          feedback_type: "optimization",
-          content: `Создано ${oppsCreated} проектов. Хорошо конвертируются: зарубежные стартапы БЕЗ аналога в РФ, решения для конкретных отраслей (не AI-обёртки). Ищи больше таких!`,
-        } as any);
-      } catch {}
+      try { await supabase.from("agent_feedback").insert({ factory: "foundry", from_agent: "builder", to_agent: "scout", feedback_type: "optimization", content: `Создано ${oppsCreated} проектов. Ищи больше: зарубежные стартапы без аналога в РФ, нишевые решения.` } as any); } catch {}
     }
 
-    return new Response(JSON.stringify({
-      success: true,
-      insights_processed: queue.length,
-      opportunities_created: oppsCreated,
-      returned_to_analyst: returned,
-      kpi_updated: true,
-    }), {
+    console.log(`[builder] DONE: ${oppsCreated} projects, ${returned} returned, ${queue.length} total`);
+
+    return new Response(JSON.stringify({ success: true, insights_processed: queue.length, opportunities_created: oppsCreated, returned_to_analyst: returned, kpi_updated: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
