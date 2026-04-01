@@ -1,7 +1,6 @@
-// Chat function runs on Lovable Cloud (has LOVABLE_API_KEY)
-const CLOUD_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
-const CHAT_URL = `${CLOUD_URL}/functions/v1/chat`
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase'
+
+const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`
 
 export type Msg = { role: 'user' | 'assistant'; content: string }
 
@@ -48,8 +47,8 @@ export async function streamChat({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      apikey: SUPABASE_PUBLISHABLE_KEY,
     },
     body: JSON.stringify({ messages, sessionId, pageContext, visitorContext }),
   })

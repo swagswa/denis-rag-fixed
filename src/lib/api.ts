@@ -1,7 +1,5 @@
-import { supabase } from './supabase'
+import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './supabase'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 const FUNCTIONS_URL = `${SUPABASE_URL}/functions/v1`
 
 export async function edgeFetch(fn: string, options?: RequestInit) {
@@ -21,7 +19,7 @@ export async function edgeFetch(fn: string, options?: RequestInit) {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${session.access_token}`,
-      apikey: SUPABASE_ANON_KEY,
+      apikey: SUPABASE_PUBLISHABLE_KEY,
       ...options?.headers,
     },
   })

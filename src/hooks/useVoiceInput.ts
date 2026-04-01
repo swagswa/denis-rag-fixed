@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { edgeFetch } from '@/lib/api'
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase'
 
 type VoiceState = 'idle' | 'recording' | 'transcribing'
 
@@ -135,19 +136,14 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
           const formData = new FormData()
           formData.append('audio', blob, `recording.${ext}`)
 
-          // Use the original Supabase for speech-to-text (has OPENAI_API_KEY)
-          const { supabase } = await import('@/lib/supabase')
           let { data: { session } } = await supabase.auth.getSession()
           if (!session?.access_token) throw new Error('Not authenticated')
-
-          const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
-          const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 
           const res = await fetch(`${SUPABASE_URL}/functions/v1/speech-to-text`, {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${session.access_token}`,
-              apikey: SUPABASE_ANON_KEY,
+              apikey: SUPABASE_PUBLISHABLE_KEY,
             },
             body: formData,
           })
