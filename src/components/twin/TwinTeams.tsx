@@ -105,7 +105,7 @@ export function TwinTeams() {
       mk('sf', 'Скаут', 'Тренды', getMood(fsm, 15), fsm, 15, 'сигн./нед.', fsm > 0 ? 'Сканирую.' : 'Жду.', signals.filter((s: any) => s.potential === 'foundry').slice(0, 3).map(s => ({ label: s.company_name || 'Сигнал', date: new Date(s.created_at).toLocaleDateString('ru') })), 'scout-foundry'),
       mk('af', 'Аналитик', 'Идеи', getMood(fam, 5), fam, 5, 'инс./нед.', fam > 0 ? 'Оцениваю.' : 'Жду.', fI.slice(0, 3).map((i: any) => ({ label: i.title?.slice(0, 40) || 'Инсайт', date: new Date(i.created_at).toLocaleDateString('ru') })), 'analyst-foundry'),
       mk('bl', 'Создатель', 'MVP', getMood(bm, 1), bm, 1, 'проектов', bm > 0 ? 'В работе!' : 'Жду идею.', opps.slice(0, 3).map(o => ({ label: o.idea?.slice(0, 40) || 'Проект', date: new Date(o.created_at).toLocaleDateString('ru') })), 'builder-foundry'),
-      mk('dr-f', 'Директор', 'Управление', getMood(bm, 1), fFeedbacks, 3, 'коррекций', bm > 0 ? 'Контролирую pipeline.' : 'Анализирую воронку.', [], 'director-foundry'),
+      mk('dr-f', 'Директор', 'Управление', getMood(bm, 1), bm, 1, 'проектов', bm > 0 ? 'Контролирую pipeline.' : 'Анализирую воронку.', [], 'director-foundry'),
     ]
 
     setFactories([

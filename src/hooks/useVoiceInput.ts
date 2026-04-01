@@ -140,8 +140,8 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
           let { data: { session } } = await supabase.auth.getSession()
           if (!session?.access_token) throw new Error('Not authenticated')
 
-          const SUPABASE_URL = 'https://kuodvlyepoojqimutmvu.supabase.co'
-          const SUPABASE_ANON_KEY = 'sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS'
+          const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
+          const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
 
           const res = await fetch(`${SUPABASE_URL}/functions/v1/speech-to-text`, {
             method: 'POST',

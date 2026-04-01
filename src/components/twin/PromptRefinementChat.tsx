@@ -230,20 +230,23 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
       <form onSubmit={e => { e.preventDefault(); handleRefine() }} className="flex items-center gap-2 px-3 py-2 border-t border-slate-800">
         <button
           type="button"
-          onClick={toggleVoice}
+          onClick={voice.toggle}
+          disabled={voice.isTranscribing}
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${
-            isRecording
+            voice.isRecording
               ? 'bg-red-600 text-white animate-pulse'
-              : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+              : voice.isTranscribing
+                ? 'bg-amber-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
           }`}
-          title={isRecording ? 'Остановить' : 'Голосовой ввод'}
+          title={voice.isRecording ? 'Остановить' : voice.isTranscribing ? 'Распознаю...' : 'Голосовой ввод'}
         >
-          {isRecording ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+          {voice.isRecording ? <MicOff className="h-3.5 w-3.5" /> : voice.isTranscribing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
         </button>
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={isRecording ? 'Говорите...' : 'Что изменить в промте...'}
+          placeholder={voice.isRecording ? 'Говорите...' : 'Что изменить в промте...'}
           disabled={loading}
           className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
         />
