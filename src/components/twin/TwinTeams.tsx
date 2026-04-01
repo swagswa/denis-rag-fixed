@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { ChevronDown, ChevronUp, Pencil, Check, X, Plus, Pause, Play, Trash2, Loader2, Settings2, Mic, MicOff } from 'lucide-react'
 import { DEFAULT_MANDATES } from '@/lib/agent-mandates'
