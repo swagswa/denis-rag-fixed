@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Wand2, Mic, MicOff, Send, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useVoiceInput } from '@/hooks/useVoiceInput'
 
 // Prompt refine runs on Lovable Cloud (has LOVABLE_API_KEY)
 const CLOUD_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kuodvlyepoojqimutmvu.supabase.co'
@@ -57,57 +58,16 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [history, setHistory] = useState<HistoryItem[]>([])
-  const [isRecording, setIsRecording] = useState(false)
-  const recognitionRef = useRef<any>(null)
 
-  useEffect(() => {
-    return () => { recognitionRef.current?.stop() }
-  }, [])
-
-  const toggleVoice = useCallback(() => {
-    if (isRecording) {
-      recognitionRef.current?.stop()
-      setIsRecording(false)
-      return
-    }
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setStatus('Голосовой ввод не поддерживается в этом браузере')
-      return
-    }
-
-    const recognition = new SpeechRecognition()
-    recognition.lang = 'ru-RU'
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognitionRef.current = recognition
-
-    let finalTranscript = ''
-    recognition.onresult = (event: any) => {
-      let interim = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript
-        if (event.results[i].isFinal) finalTranscript += t + ' '
-        else interim = t
-      }
-      setInput(finalTranscript + interim)
-    }
-
-    recognition.onerror = () => setIsRecording(false)
-    recognition.onend = () => setIsRecording(false)
-    recognition.start()
-    setIsRecording(true)
-  }, [isRecording])
+  const voice = useVoiceInput(useCallback((text: string) => {
+    setInput(prev => prev ? prev + ' ' + text : text)
+  }, []))
 
   const handleRefine = useCallback(async () => {
     const instruction = input.trim()
     if (!instruction || loading || !currentPrompt) return
 
-    if (isRecording) {
-      recognitionRef.current?.stop()
-      setIsRecording(false)
-    }
+    if (voice.isRecording) voice.toggle()
 
     setInput('')
     setLoading(true)
@@ -233,7 +193,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, currentPrompt, isRecording, onApplyPrompt])
+  }, [input, loading, currentPrompt, voice, onApplyPrompt])
 
   return (
     <div className="flex flex-col min-h-0 h-full">
@@ -270,20 +230,23 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
       <form onSubmit={e => { e.preventDefault(); handleRefine() }} className="flex items-center gap-2 px-3 py-2 border-t border-slate-800">
         <button
           type="button"
-          onClick={toggleVoice}
+          onClick={voice.toggle}
+          disabled={voice.isTranscribing}
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${
-            isRecording
+            voice.isRecording
               ? 'bg-red-600 text-white animate-pulse'
-              : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+              : voice.isTranscribing
+                ? 'bg-amber-600 text-white'
+                : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
           }`}
-          title={isRecording ? 'Остановить' : 'Голосовой ввод'}
+          title={voice.isRecording ? 'Остановить' : voice.isTranscribing ? 'Распознаю...' : 'Голосовой ввод'}
         >
-          {isRecording ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+          {voice.isRecording ? <MicOff className="h-3.5 w-3.5" /> : voice.isTranscribing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
         </button>
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={isRecording ? 'Говорите...' : 'Что изменить в промте...'}
+          placeholder={voice.isRecording ? 'Говорите...' : 'Что изменить в промте...'}
           disabled={loading}
           className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
         />

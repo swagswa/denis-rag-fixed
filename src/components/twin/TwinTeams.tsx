@@ -94,7 +94,7 @@ export function TwinTeams() {
       mk('ac', 'Аналитик', 'Инсайты', getMood(am, 5), am, 5, 'инс./нед.', am >= 5 ? 'Готовы!' : am > 0 ? 'Анализирую.' : 'Жду сигналы.', cI.slice(0, 3).map((i: any) => ({ label: i.title?.slice(0, 40) || 'Инсайт', date: new Date(i.created_at).toLocaleDateString('ru') })), 'analyst-consulting'),
       mk('mk', 'Маркетолог', 'Лиды', getMood(cm, 5), cm, 5, 'лидов', cm >= 5 ? 'Воронка!' : cm > 0 ? 'Outreach.' : 'Жду.', leadsD.slice(0, 3).map((l: any) => ({ label: l.company_name || l.name || 'Лид', date: new Date(l.created_at).toLocaleDateString('ru') })), 'marketer-consulting'),
       mk('sl', 'Продавец', 'Сделки', getMood(clm, 2), clm, 2, 'сделок', clm > 0 ? 'Есть клиенты!' : 'Жду лидов.', [], 'seller-consulting'),
-      mk('dr-c', 'Директор', 'Управление', getMood(cm + clm, 3), cFeedbacks, 5, 'коррекций', cm + clm > 0 ? 'Контролирую воронку.' : 'Анализирую узкие места.', [], 'director-consulting'),
+      mk('dr-c', 'Директор', 'Управление', getMood(clm, 2), clm, 2, 'сделок', clm > 0 ? 'Контролирую воронку.' : 'Анализирую узкие места.', [], 'director-consulting'),
     ]
 
     const fsm = rs.filter((s: any) => s.potential === 'foundry').length
@@ -105,7 +105,7 @@ export function TwinTeams() {
       mk('sf', 'Скаут', 'Тренды', getMood(fsm, 15), fsm, 15, 'сигн./нед.', fsm > 0 ? 'Сканирую.' : 'Жду.', signals.filter((s: any) => s.potential === 'foundry').slice(0, 3).map(s => ({ label: s.company_name || 'Сигнал', date: new Date(s.created_at).toLocaleDateString('ru') })), 'scout-foundry'),
       mk('af', 'Аналитик', 'Идеи', getMood(fam, 5), fam, 5, 'инс./нед.', fam > 0 ? 'Оцениваю.' : 'Жду.', fI.slice(0, 3).map((i: any) => ({ label: i.title?.slice(0, 40) || 'Инсайт', date: new Date(i.created_at).toLocaleDateString('ru') })), 'analyst-foundry'),
       mk('bl', 'Создатель', 'MVP', getMood(bm, 1), bm, 1, 'проектов', bm > 0 ? 'В работе!' : 'Жду идею.', opps.slice(0, 3).map(o => ({ label: o.idea?.slice(0, 40) || 'Проект', date: new Date(o.created_at).toLocaleDateString('ru') })), 'builder-foundry'),
-      mk('dr-f', 'Директор', 'Управление', getMood(bm, 1), fFeedbacks, 3, 'коррекций', bm > 0 ? 'Контролирую pipeline.' : 'Анализирую воронку.', [], 'director-foundry'),
+      mk('dr-f', 'Директор', 'Управление', getMood(bm, 1), bm, 1, 'проектов', bm > 0 ? 'Контролирую pipeline.' : 'Анализирую воронку.', [], 'director-foundry'),
     ]
 
     setFactories([
@@ -179,9 +179,8 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
               <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Мандат</span>
               <div className="flex gap-1">
                 {agent.mandateKey && (
-                  <button onClick={() => setChatOpen(true)} className="flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-purple-800/30 text-purple-400 text-[10px]" title="Диалог с AI для корректировки мандата">
-                    <MessageSquare className="h-3 w-3" />
-                    <span className="hidden sm:inline">Изменить</span>
+                  <button onClick={() => setChatOpen(true)} className="flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-purple-800/30 text-purple-400 text-[10px]" title="Корректировка мандата">
+                    <Pencil className="h-3 w-3" />
                   </button>
                 )}
                 {agent.mandateFull && <button onClick={() => setExp(!exp)} className="p-0.5 rounded hover:bg-slate-800 text-slate-500">{exp ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}</button>}
