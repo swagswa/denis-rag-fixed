@@ -3,10 +3,8 @@ import { Wand2, Mic, MicOff, Send, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useVoiceInput } from '@/hooks/useVoiceInput'
 
-// Prompt refine runs on Lovable Cloud (has LOVABLE_API_KEY)
-const CLOUD_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kuodvlyepoojqimutmvu.supabase.co'
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || ''
-const CHAT_URL = `${CLOUD_URL}/functions/v1/chat`
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
 const PROMPT_REFINER_SYSTEM_PROMPT = `You are a PROMPT EDITING MACHINE. Not a chatbot. Not an assistant.
 
