@@ -115,6 +115,31 @@ ${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала
 `;
     }
 
+    // ═══ PHASE 0.8: БАЗА ЗНАНИЙ — загрузить существующие инсайты и лиды для контекста ═══
+    const { data: pastInsights } = await supabase
+      .from("insights")
+      .select("title, company_name, problem, action_proposal, opportunity_type, status")
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    const { data: pastLeads } = await supabase
+      .from("leads")
+      .select("company_name, lead_summary, status")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    const knowledgeInsights = (pastInsights || []).length > 0
+      ? (pastInsights || [])
+          .map((ins: any, i: number) => `[I${i + 1}|${ins.status}] ${ins.opportunity_type} | ${ins.title} | ${(ins.problem || "").slice(0, 80)}`)
+          .join("\n")
+      : "";
+
+    const knowledgeLeads = (pastLeads || []).length > 0
+      ? (pastLeads || [])
+          .map((l: any, i: number) => `[L${i + 1}|${l.status}] ${l.company_name || "?"} | ${(l.lead_summary || "").slice(0, 100)}`)
+          .join("\n")
+      : "";
+
     // ═══ PHASE 1: Process NEW signals (including recycled ones) ═══
     // Filter signals by factory to prevent cross-contamination
     const isFoundry = factory === "foundry";
