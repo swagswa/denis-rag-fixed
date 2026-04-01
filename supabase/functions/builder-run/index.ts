@@ -317,6 +317,12 @@ ${filteredBrief}`;
         await supabase.from("insights").update({ status: "processed", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
         oppsCreated++;
         console.log(`[builder] ✅ Created: "${item.idea}"`);
+        await notifyOwner("project_ready", {
+          idea: item.idea, market: item.market,
+          revenue_estimate: item.revenue_estimate,
+          complexity: item.complexity,
+          problem: item.problem, solution: item.solution,
+        });
       } else {
         const reason = compactText(item.reason, 300);
         await supabase.from("insights").update({ status: "returned", notes: `Билдер: ${reason}`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);
