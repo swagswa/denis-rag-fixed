@@ -1,4 +1,4 @@
-// builder-run v3 — FIXED: source_index, parse resilience, logging
+// builder-run v4 — with Telegram notifications
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
