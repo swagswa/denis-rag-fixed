@@ -8,14 +8,17 @@ const corsHeaders = {
 
 async function notifyOwner(eventType: string, data: any) {
   try {
-    // Use original Supabase for notifications (not Lovable Cloud)
     const url = "https://kuodvlyepoojqimutmvu.supabase.co";
     const key = "sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS";
-    await fetch(`${url}/functions/v1/notify-owner`, {
+    const res = await fetch(`${url}/functions/v1/notify-owner`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ event_type: eventType, data }),
     });
+    if (!res.ok) {
+      const text = await res.text();
+      console.warn("[notify] failed response:", res.status, text);
+    }
   } catch (e) { console.warn("[notify] failed:", e); }
 }
 

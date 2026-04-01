@@ -14,9 +14,13 @@ serve(async (req) => {
       triggered_by: "manual",
     }));
 
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+
+    if (!SUPABASE_URL || !SERVICE_KEY) {
+      throw new Error(`Missing env: SUPABASE_URL=${!!SUPABASE_URL}, SUPABASE_SERVICE_ROLE_KEY=${!!SERVICE_KEY}`);
+    }
 
     const chain = factory === "foundry"
       ? ["scout-run", "analyst-run", "foundry-qualify", "builder-run"]
@@ -68,10 +72,16 @@ serve(async (req) => {
           body: JSON.stringify({ triggered_by, factory }),
         });
 
-        const data = await res.json().catch(() => ({}));
-        results.push({ fn, status: res.status, data });
+        const rawText = await res.text();
+        let data: any = {};
+        try {
+          data = rawText ? JSON.parse(rawText) : {};
+        } catch {
+          data = { raw: rawText.slice(0, 1000) };
+        }
 
-        console.log(`[${factory}] ${fn}: ${res.status}`, JSON.stringify(data).slice(0, 200));
+        results.push({ fn, status: res.status, data });
+        console.log(`[${factory}] ${fn}: ${res.status}`, rawText.slice(0, 300));
 
         if (!res.ok) {
           console.error(`[${factory}] ${fn} failed with ${res.status}, stopping chain`);
