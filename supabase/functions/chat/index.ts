@@ -252,6 +252,16 @@ serve(async (req) => {
     const pageUrl = body?.pageContext?.url || null;
     const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
 
+    // ═══ NOTIFY: New conversation started (first message only) ═══
+    const userMessages = messages.filter(m => m.role === "user");
+    if (userMessages.length === 1) {
+      await notifyOwner("new_conversation", {
+        site_id: pageUrl || "unknown",
+        visitor_id: sessionId?.slice(0, 8),
+        first_message: userMessages[0].content?.slice(0, 200),
+      });
+    }
+
     // ═══ LEAD DETECTION & SAVE ═══
     if (supabase) {
       const lead = detectContactInfo(messages);
