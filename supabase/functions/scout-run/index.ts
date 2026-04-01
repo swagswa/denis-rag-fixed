@@ -6,29 +6,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ═══ ИСТОЧНИКИ ДЛЯ СКРЕЙПИНГА ═══
-const CONSULTING_SOURCES = [
+// ═══ ПОИСКОВЫЕ ЗАПРОСЫ (вместо URL-ов — надёжнее!) ═══
+const CONSULTING_SEARCHES = [
   // Вакансии — прямой сигнал боли
-  { url: "https://hh.ru/search/vacancy?text=автоматизация+бизнес-процессов&area=113&period=1", category: "vacancies", label: "hh.ru: автоматизация" },
-  { url: "https://hh.ru/search/vacancy?text=внедрение+AI+искусственный+интеллект&area=113&period=1", category: "vacancies", label: "hh.ru: AI/ML" },
-  { url: "https://hh.ru/search/vacancy?text=цифровая+трансформация&area=113&period=1", category: "vacancies", label: "hh.ru: цифровизация" },
-  // Бизнес-медиа
-  { url: "https://vc.ru/services", category: "business_media", label: "vc.ru: сервисы" },
-  { url: "https://vc.ru/ml", category: "business_media", label: "vc.ru: ML/AI" },
-  { url: "https://habr.com/ru/flows/admin/", category: "tech_media", label: "habr: админка/автоматизация" },
+  { query: "автоматизация бизнес-процессов вакансия 2026 site:hh.ru", category: "vacancies", label: "hh.ru: автоматизация" },
+  { query: "внедрение AI искусственный интеллект вакансия Россия", category: "vacancies", label: "hh.ru: AI/ML" },
+  { query: "цифровая трансформация средний бизнес вакансия", category: "vacancies", label: "hh.ru: цифровизация" },
+  // Бизнес-медиа и боли
+  { query: "компания внедрила AI автоматизацию Россия 2026 результаты", category: "business_media", label: "Кейсы внедрения AI" },
+  { query: "проблемы автоматизации бизнеса Россия малый средний", category: "business_media", label: "Проблемы автоматизации" },
+  { query: "vc.ru чат-бот бизнес внедрение отзыв", category: "business_media", label: "vc.ru: чат-боты" },
+  { query: "ищем подрядчика AI автоматизация чат-бот разработка", category: "direct_demand", label: "Прямой спрос на AI" },
   // Тендеры
-  { url: "https://zakupki.gov.ru/epz/order/extendedsearch/results.html?searchString=искусственный+интеллект+автоматизация", category: "tenders", label: "zakupki.gov.ru: AI" },
+  { query: "тендер закупка искусственный интеллект автоматизация 2026", category: "tenders", label: "Тендеры: AI" },
+  // Уход вендоров / импортозамещение
+  { query: "уход зарубежного сервиса замена Россия 2026", category: "vendor_exit", label: "Уход вендоров" },
+  { query: "замена CRM ERP уход вендора Россия импортозамещение", category: "vendor_exit", label: "Импортозамещение CRM" },
 ];
 
-const FOUNDRY_SOURCES = [
+const FOUNDRY_SEARCHES = [
   // Мировые стартапы
-  { url: "https://www.producthunt.com/leaderboard/daily", category: "global_startups", label: "ProductHunt: daily" },
-  { url: "https://news.ycombinator.com/show", category: "global_startups", label: "HN: Show HN" },
-  { url: "https://www.betalist.com/", category: "global_startups", label: "BetaList: новые" },
-  { url: "https://theresanaiforthat.com/new/", category: "ai_tools", label: "ThereIsAnAIForThat: новые" },
-  // Российский спрос
-  { url: "https://vc.ru/services", category: "ru_demand", label: "vc.ru: сервисы" },
-  { url: "https://vc.ru/trade", category: "ru_demand", label: "vc.ru: торговля" },
+  { query: "AI startup launched 2026 ProductHunt top", category: "global_startups", label: "ProductHunt: top AI" },
+  { query: "new AI SaaS tool launched this week 2026", category: "global_startups", label: "Новые AI SaaS" },
+  { query: "AI startup seed round 2026 B2B", category: "global_startups", label: "AI стартапы seed" },
+  // Российский спрос — чего не хватает
+  { query: "нет аналога в России сервис AI автоматизация", category: "ru_demand", label: "Нет аналога в РФ" },
+  { query: "Вордстат рост запросов AI сервис бот 2026", category: "ru_demand", label: "Рост запросов" },
+  { query: "AI для логистики медицины агро образования Россия", category: "niche_ai", label: "Нишевый AI РФ" },
+  { query: "Telegram бот бизнес автоматизация Россия популярный", category: "ru_demand", label: "TG-боты бизнес" },
 ];
 
 function compactText(value: unknown, max = 900) {
@@ -36,42 +41,7 @@ function compactText(value: unknown, max = 900) {
   return value.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-async function scrapeUrl(url: string, firecrawlKey: string): Promise<string | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const response = await fetch("https://api.firecrawl.dev/v1/scrape", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${firecrawlKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url,
-        formats: ["markdown"],
-        onlyMainContent: true,
-        waitFor: 3000,
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      console.error(`Firecrawl error for ${url}: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-    // Firecrawl v1 nests content inside data
-    const markdown = data?.data?.markdown || data?.markdown || "";
-    return markdown.slice(0, 4000); // cap per source
-  } catch (e) {
-    console.error(`Scrape failed for ${url}:`, e);
-    return null;
-  }
-}
-
-async function searchWeb(query: string, firecrawlKey: string): Promise<string | null> {
+async function searchWeb(query: string, firecrawlKey: string, limit = 10): Promise<string | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
@@ -83,10 +53,10 @@ async function searchWeb(query: string, firecrawlKey: string): Promise<string | 
       },
       body: JSON.stringify({
         query,
-        limit: 5,
+        limit,
         lang: "ru",
         country: "RU",
-        tbs: "qdr:d",
+        tbs: "qdr:w", // за неделю — шире охват чем qdr:d
       }),
       signal: controller.signal,
     });
@@ -152,7 +122,6 @@ serve(async (req) => {
       .map((k: any) => `[${k.factory}] ${k.metric}: ${k.current}/${k.target}`)
       .join("\n");
 
-    // Self-optimization: check if behind KPI
     const myKpiConsulting = (kpiGoals || []).find((k: any) => k.factory === "consulting" && k.metric === "signals_per_week");
     const myKpiFoundry = (kpiGoals || []).find((k: any) => k.factory === "foundry" && k.metric === "signals_per_week");
     const consultingGap = myKpiConsulting ? Math.max(0, (myKpiConsulting.target || 0) - (myKpiConsulting.current || 0)) : 0;
@@ -170,24 +139,35 @@ Foundry сигналы: осталось найти ${foundryGap} из ${myKpiFo
 ${isUrgent ? "- Увеличь количество сигналов до МАКСИМУМА (15)" : "- Старайся найти больше сигналов (10-12)"}
 - Расширь интерпретацию: включай СМЕЖНЫЕ отрасли и КОСВЕННЫЕ сигналы
 - Каждая вакансия, каждая новость — потенциальный сигнал. Не пропускай!
-- РЕКОМЕНДАЦИИ АНАЛИТИКУ: "Мне нужна обратная связь — какие отрасли/типы сигналов дают лучшую конверсию в инсайты? Я адаптирую поиск."
 `;
     }
 
-    // ═══ PHASE 1: Реальный скрейпинг источников ═══
+    // ═══ PHASE 0.7: БАЗА ЗНАНИЙ — загрузить существующие инсайты для контекста ═══
+    const { data: existingInsights } = await supabase
+      .from("insights")
+      .select("title, company_name, what_happens, problem, action_proposal, opportunity_type")
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+    const knowledgeBase = (existingInsights || []).length > 0
+      ? (existingInsights || [])
+          .map((ins: any, i: number) => `[KB${i + 1}] ${ins.opportunity_type} | ${ins.title} | боль: ${(ins.problem || "").slice(0, 100)} | решение: ${(ins.action_proposal || "").slice(0, 100)}`)
+          .join("\n")
+      : "";
+
+    // ═══ PHASE 1: Поиск через Firecrawl Search (надёжнее scrape!) ═══
     const scrapedData: { label: string; category: string; content: string }[] = [];
 
     if (FIRECRAWL_API_KEY) {
-      console.log("Firecrawl key found — scraping real sources...");
+      console.log("Firecrawl key found — searching sources...");
 
-      // Скрейпим consulting и foundry источники параллельно
-      const allSources = [...CONSULTING_SOURCES, ...FOUNDRY_SOURCES];
+      const allSearches = [...CONSULTING_SEARCHES, ...FOUNDRY_SEARCHES];
 
-      // Batch по 3 параллельных запроса чтобы не перегрузить API
-      for (let i = 0; i < allSources.length; i += 3) {
-        const batch = allSources.slice(i, i + 3);
+      // Batch по 4 параллельных запроса
+      for (let i = 0; i < allSearches.length; i += 4) {
+        const batch = allSearches.slice(i, i + 4);
         const results = await Promise.allSettled(
-          batch.map((src) => scrapeUrl(src.url, FIRECRAWL_API_KEY))
+          batch.map((src) => searchWeb(src.query, FIRECRAWL_API_KEY, 10))
         );
 
         for (let j = 0; j < batch.length; j++) {
@@ -202,32 +182,9 @@ ${isUrgent ? "- Увеличь количество сигналов до МАК
         }
       }
 
-      // Дополнительный поиск по актуальным запросам
-      const searchQueries = [
-        "автоматизация бизнеса AI Россия 2026",
-        "проблемы внедрения ИИ средний бизнес РФ",
-        "AI стартап запуск Россия",
-        "уход зарубежных сервисов замена Россия",
-      ];
-
-      const searchResults = await Promise.allSettled(
-        searchQueries.map((q) => searchWeb(q, FIRECRAWL_API_KEY))
-      );
-
-      for (let i = 0; i < searchQueries.length; i++) {
-        const result = searchResults[i];
-        if (result.status === "fulfilled" && result.value) {
-          scrapedData.push({
-            label: `Поиск: ${searchQueries[i]}`,
-            category: "web_search",
-            content: result.value,
-          });
-        }
-      }
-
-      console.log(`Scraped ${scrapedData.length} sources successfully`);
+      console.log(`Searched ${scrapedData.length} queries successfully`);
     } else {
-      console.warn("FIRECRAWL_API_KEY not set — falling back to AI-only mode (less reliable)");
+      console.warn("FIRECRAWL_API_KEY not set — falling back to AI-only mode");
     }
 
     // ═══ PHASE 2: GPT анализирует РЕАЛЬНЫЕ данные и генерирует сигналы ═══
@@ -243,7 +200,15 @@ ${isUrgent ? "- Увеличь количество сигналов до МАК
 
 МАНДАТ: целевые компании 5-500 человек. Крупные корпорации (1С, Яндекс, Сбер, МТС, Mail.ru, Ростелеком) — ПРОПУСКАЙ.
 
-РЕАЛЬНЫЕ ДАННЫЕ ИЗ ИСТОЧНИКОВ:
+${knowledgeBase ? `═══ БАЗА ЗНАНИЙ — НАШИ СУЩЕСТВУЮЩИЕ ИНСАЙТЫ (используй для контекста!) ═══
+Эти инсайты уже созданы аналитиком. НЕ дублируй их!
+Но ИСПОЛЬЗУЙ как контекст: ищи НОВЫЕ сигналы, которые УСИЛИВАЮТ или ДОПОЛНЯЮТ эти темы.
+Например: если есть инсайт "логистика: оптимизация маршрутов" — ищи НОВЫЕ компании/события в логистике.
+
+${knowledgeBase}
+═══ КОНЕЦ БАЗЫ ЗНАНИЙ ═══\n\n` : ""}
+
+РЕАЛЬНЫЕ ДАННЫЕ ИЗ ПОИСКА:
 ${scrapedBrief}
 
 ${feedbackContext ? `\n═══ ОБРАТНАЯ СВЯЗЬ ОТ СИСТЕМЫ (учти!):\n${feedbackContext}\n` : ""}
@@ -275,6 +240,7 @@ ${selfOptimizationPrompt}
 - Максимум 15 сигналов (8 consulting + 7 foundry)
 - Geography: ТОЛЬКО РФ/СНГ (для consulting) или адаптация в РФ (для foundry)
 - CONSULTING: company_name — бонус, но НЕ обязателен. Главное — конкретный тренд/событие с деталями
+- НЕ ДУБЛИРУЙ темы из БАЗЫ ЗНАНИЙ! Ищи НОВЫЕ сигналы.
 - 🚫 FOUNDRY: НЕ генерируй похожие идеи! Каждый foundry-сигнал должен быть про РАЗНУЮ отрасль/нишу
 - 🚫 ЗАПРЕЩЕНЫ для foundry: prompt platforms, prompt marketplace, generic AI assistants, AI copywriters, ChatGPT wrappers, AI-обёртки, генераторы контента общего назначения
 - ✅ ХОРОШО для foundry: AI для конкретной ОТРАСЛИ (медицина, логистика, юристы, агро), автоматизация конкретного ПРОЦЕССА
@@ -301,7 +267,7 @@ ${selfOptimizationPrompt}
       body: JSON.stringify({
         model: "gpt-4o",
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
+        temperature: 0.4,
       }),
     });
 
@@ -332,7 +298,6 @@ ${selfOptimizationPrompt}
     }
 
     // ═══ PHASE 3: Дедупликация и вставка ═══
-    // Загружаем недавние сигналы для дедупликации
     const { data: recentSignals } = await supabase
       .from("signals")
       .select("description, company_name")
@@ -351,22 +316,18 @@ ${selfOptimizationPrompt}
       const desc = compactText(item.description, 900);
       const descKey = desc.toLowerCase().slice(0, 200);
 
-      // Skip duplicates
       if (existingDescriptions.has(descKey)) continue;
       existingDescriptions.add(descKey);
 
       const potential = item.potential === "foundry" ? "foundry" : "consulting";
       const companyName = compactText(item.company_name, 120) || null;
 
-      // Скаут ищет ТРЕНДЫ — company_name необязателен.
-      // Конкретные компании найдёт Аналитик.
-
       toInsert.push({
         company_name: companyName,
         description: desc,
         signal_type: compactText(item.signal_type, 50),
         industry: compactText(item.industry, 80) || null,
-        source: compactText(item.source, 200) || (FIRECRAWL_API_KEY ? "firecrawl" : "ai_generated"),
+        source: compactText(item.source, 200) || (FIRECRAWL_API_KEY ? "firecrawl_search" : "ai_generated"),
         potential,
         status: "new",
         notes: compactText(item.notes, 300) || null,
@@ -378,11 +339,10 @@ ${selfOptimizationPrompt}
       if (insertError) throw insertError;
     }
 
-    // ═══ PHASE 4: Логируем запуск ═══
     // ═══ PHASE 4: Логируем результат ═══
     console.log(`Scout completed: ${toInsert.length} signals (${toInsert.filter((s: any) => s.potential === "consulting").length} consulting, ${toInsert.filter((s: any) => s.potential === "foundry").length} foundry)`);
 
-    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
+    // ═══ SELF-OPTIMIZATION: Update KPI ═══
     const consultingCreated = toInsert.filter((s: any) => s.potential === "consulting").length;
     const foundryCreated = toInsert.filter((s: any) => s.potential === "foundry").length;
 
@@ -393,7 +353,6 @@ ${selfOptimizationPrompt}
       await supabase.from("agent_kpi").update({ current: (myKpiFoundry.current || 0) + foundryCreated, updated_at: new Date().toISOString() }).eq("id", myKpiFoundry.id);
     }
 
-    // Peer feedback to analyst if we produced many signals but few get converted
     if (toInsert.length > 5) {
       try {
         const { data: recentConversion } = await supabase
@@ -408,7 +367,7 @@ ${selfOptimizationPrompt}
             from_agent: "scout",
             to_agent: "analyst",
             feedback_type: "optimization",
-            content: `Скаут создал ${toInsert.length} сигналов, но конверсия в инсайты низкая (${insightCount} инсайтов за неделю). Рекомендации: 1) Расширь критерии — бери больше сигналов в работу. 2) Пробуй СМЕЖНЫЕ отрасли. 3) Старые сигналы тоже могут быть актуальны при новых триггерах.`,
+            content: `Скаут создал ${toInsert.length} сигналов, но конверсия в инсайты низкая (${insightCount} инсайтов за неделю). Бери больше сигналов в работу — лучше больше средних инсайтов, чем мало идеальных.`,
           } as any);
         }
       } catch {}
@@ -417,7 +376,7 @@ ${selfOptimizationPrompt}
     return new Response(JSON.stringify({
       success: true,
       signals_created: toInsert.length,
-      sources_scraped: scrapedData.length,
+      sources_searched: scrapedData.length,
       firecrawl_enabled: !!FIRECRAWL_API_KEY,
       kpi_updated: true,
     }), {
