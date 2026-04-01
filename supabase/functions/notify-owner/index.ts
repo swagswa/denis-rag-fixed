@@ -24,9 +24,10 @@ serve(async (req) => {
     if (!BOT_TOKEN) throw new Error("TELEGRAM_API_KEY not configured");
     if (!CHAT_ID) throw new Error("TELEGRAM_OWNER_CHAT_ID not configured");
 
-    const { event_type, data } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const { event_type, data } = body as { event_type?: string; data?: any };
 
-    if (!event_type) throw new Error("event_type required");
+    if (!event_type) throw new Error(`event_type required; got body=${JSON.stringify(body).slice(0, 500)}`);
 
     const message = formatMessage(event_type, data || {});
 

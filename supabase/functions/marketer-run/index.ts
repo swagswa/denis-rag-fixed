@@ -17,11 +17,15 @@ async function notifyOwner(eventType: string, data: any) {
     const url = Deno.env.get("SUPABASE_URL");
     const key = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!url || !key) return;
-    await fetch(`${url}/functions/v1/notify-owner`, {
+    const res = await fetch(`${url}/functions/v1/notify-owner`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({ event_type: eventType, data }),
     });
+    if (!res.ok) {
+      const text = await res.text();
+      console.warn("[notify] failed response:", res.status, text);
+    }
   } catch (e) { console.warn("[notify] failed:", e); }
 }
 
