@@ -213,10 +213,15 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
       )}
       {editing && (
         <div className="pt-2 border-t border-slate-800/30">
-          <textarea value={editText} onChange={e => setEditText(e.target.value)} className="w-full text-[11px] p-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 resize-y min-h-[120px]" rows={8} />
-          <div className="flex gap-1 mt-1 justify-end">
-            <button onClick={saveMandate} disabled={saving} className="p-0.5 text-emerald-400"><Check className="h-3.5 w-3.5" /></button>
-            <button onClick={() => setEditing(false)} className="p-0.5 text-red-400"><X className="h-3.5 w-3.5" /></button>
+          <textarea value={editText} onChange={e => { voiceBaseRef.current = e.target.value; setEditText(e.target.value) }} className="w-full text-[11px] p-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 resize-y min-h-[120px]" rows={8} />
+          <div className="flex items-center gap-1 mt-1.5">
+            <button onClick={toggleVoice} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${recording ? 'bg-red-500/20 text-red-400 border border-red-500/40' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200'}`}>
+              {recording ? <><MicOff className="h-3 w-3" /> Стоп</> : <><Mic className="h-3 w-3" /> Голос</>}
+            </button>
+            {recording && <span className="text-[10px] text-red-400 animate-pulse">● Запись...</span>}
+            <div className="flex-1" />
+            <button onClick={saveMandate} disabled={saving} className="p-1 rounded hover:bg-slate-800 text-emerald-400">{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}</button>
+            <button onClick={() => { recognitionRef.current?.stop(); setRecording(false); setEditing(false) }} className="p-1 rounded hover:bg-slate-800 text-red-400"><X className="h-3.5 w-3.5" /></button>
           </div>
         </div>
       )}
