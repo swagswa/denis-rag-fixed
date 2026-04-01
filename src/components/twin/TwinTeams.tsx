@@ -172,8 +172,9 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
     }
     recognition.onerror = () => setRecording(false)
     recognition.onend = () => setRecording(false)
+    voiceBaseRef.current = editText
     recognition.start()
-    recognitionRef[0] = recognition
+    recognitionRef.current = recognition
     setRecording(true)
   }
 
