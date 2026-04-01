@@ -146,7 +146,8 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
   const [editText, setEditText] = useState('')
   const [saving, setSaving] = useState(false)
   const [recording, setRecording] = useState(false)
-  const recognitionRef = useState<any>(null)
+  const recognitionRef = useRef<any>(null)
+  const voiceBaseRef = useRef('')
 
   const toggleVoice = () => {
     if (recording) {
