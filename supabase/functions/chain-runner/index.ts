@@ -104,7 +104,7 @@ serve(async (req) => {
       const [signalsRes, insightsRes, leadsRes, oppsRes, feedbackRes, kpiRes] = await Promise.all([
         supabase.from("signals").select("id, potential, status").gte("created_at", monthISO),
         supabase.from("insights").select("id, opportunity_type, status").gte("created_at", monthISO),
-        supabase.from("leads").select("id, status").gte("created_at", monthISO).not("session_id", "is", null).is("session_id", null), // agent leads only
+        supabase.from("leads").select("id, status").gte("created_at", monthISO),
         supabase.from("startup_opportunities").select("id, stage").gte("created_at", monthISO),
         supabase.from("agent_feedback").select("id, resolved").eq("resolved", false),
         supabase.from("agent_kpi").select("factory, metric, target, current").eq("active", true),
