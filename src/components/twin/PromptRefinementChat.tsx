@@ -193,7 +193,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [input, loading, currentPrompt, isRecording, onApplyPrompt])
+  }, [input, loading, currentPrompt, voice, onApplyPrompt])
 
   return (
     <div className="flex flex-col min-h-0 h-full">
