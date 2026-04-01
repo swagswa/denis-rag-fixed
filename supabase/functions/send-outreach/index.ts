@@ -64,8 +64,8 @@ function detectChannel(message: string): string {
 
 // ═══ TELEGRAM (прямой Bot API, без gateway) ═══
 async function sendTelegram(message: string, lead: any) {
-  const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
-  if (!BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN not configured");
+  const BOT_TOKEN = Deno.env.get("TELEGRAM_API_KEY");
+  if (!BOT_TOKEN) throw new Error("TELEGRAM_API_KEY not configured");
 
   // Твой личный chat_id для получения outreach-сообщений на согласование
   const OWNER_CHAT_ID = Deno.env.get("TELEGRAM_OWNER_CHAT_ID");
