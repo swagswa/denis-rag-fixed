@@ -67,10 +67,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
     const instruction = input.trim()
     if (!instruction || loading || !currentPrompt) return
 
-    if (isRecording) {
-      recognitionRef.current?.stop()
-      setIsRecording(false)
-    }
+    if (voice.isRecording) voice.toggle()
 
     setInput('')
     setLoading(true)
