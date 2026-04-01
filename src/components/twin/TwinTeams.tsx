@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import { ChevronDown, ChevronUp, Pencil, Check, X, Plus, Pause, Play, Trash2, Loader2, Settings2, Mic, MicOff } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pencil, Plus, Pause, Play, Trash2, Loader2, Settings2, MessageSquare } from 'lucide-react'
 import { DEFAULT_MANDATES } from '@/lib/agent-mandates'
+import { MandateChatDialog } from './MandateChatDialog'
 
 type Mood = 'great' | 'good' | 'neutral' | 'struggling'
 
@@ -53,22 +54,24 @@ export function TwinTeams() {
 
   const loadData = async () => {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-    const { data: mandateDocs } = await supabase.from('documents').select('source_name, content').eq('source_type', 'agent_mandate')
+    const { data: mandateDocs } = await supabase.from('documents' as any).select('source_name, content').eq('source_type', 'agent_mandate')
     const customMandates: MandateMap = {}
-    for (const doc of mandateDocs || []) {
+    for (const doc of (mandateDocs || []) as any[]) {
       if (doc.source_name) { const c = doc.content || ''; const lines = c.split('\n').filter((l: string) => l.trim()); customMandates[doc.source_name] = { summary: lines.slice(0, 3).join('\n').slice(0, 200), full: c } }
     }
     const gm = (key: string) => customMandates[key] || DEFAULT_MANDATES[key] || { summary: '', full: '' }
 
-    const [sR, iR, lR, oR, fR] = await Promise.all([
+    const [sR, iR, lR, oR, fR, fbR] = await Promise.all([
       supabase.from('signals').select('id, company_name, description, created_at, status, potential').order('created_at', { ascending: false }).limit(50),
       supabase.from('insights').select('id, title, created_at, status, opportunity_type').order('created_at', { ascending: false }).limit(50),
       supabase.from('leads').select('id, name, company_name, created_at, status').order('created_at', { ascending: false }).limit(20),
       supabase.from('startup_opportunities').select('id, idea, created_at, stage').order('created_at', { ascending: false }).limit(20),
       supabase.from('factory_flows').select('*').order('created_at', { ascending: false }),
+      (supabase as any).from('agent_feedback').select('id, factory, from_agent, created_at').eq('from_agent', 'chain-runner').order('created_at', { ascending: false }).limit(10),
     ])
 
     const signals = sR.data || []; const insights = iR.data || []; const leadsD = lR.data || []; const opps = oR.data || []; const allFlows = fR.data || []
+    const feedbacks = fbR.data || []
     const rs = signals.filter(s => s.created_at >= weekAgo)
     const cI = insights.filter((i: any) => i.opportunity_type === 'consulting')
     const fI = insights.filter((i: any) => i.opportunity_type === 'foundry' || i.opportunity_type === 'innovation_pilot')
@@ -82,11 +85,16 @@ export function TwinTeams() {
     const cm = leadsD.length
     const clm = leadsD.filter((l: any) => l.status === 'qualified' || l.status === 'converted').length
 
+    // Director metrics: feedback count this week
+    const cFeedbacks = feedbacks.filter((f: any) => f.factory === 'consulting' && f.created_at >= weekAgo).length
+    const fFeedbacks = feedbacks.filter((f: any) => f.factory === 'foundry' && f.created_at >= weekAgo).length
+
     const cAgents: AgentData[] = [
       mk('sc', 'Скаут', 'Ищет сигналы', getMood(sm, 15), sm, 15, 'сигн./нед.', sm >= 15 ? 'Радар на полную!' : sm > 0 ? 'Работаю.' : 'Жду потока.', signals.filter((s: any) => s.potential === 'consulting').slice(0, 3).map(s => ({ label: s.company_name || 'Сигнал', date: new Date(s.created_at).toLocaleDateString('ru') })), 'scout-consulting'),
       mk('ac', 'Аналитик', 'Инсайты', getMood(am, 5), am, 5, 'инс./нед.', am >= 5 ? 'Готовы!' : am > 0 ? 'Анализирую.' : 'Жду сигналы.', cI.slice(0, 3).map((i: any) => ({ label: i.title?.slice(0, 40) || 'Инсайт', date: new Date(i.created_at).toLocaleDateString('ru') })), 'analyst-consulting'),
       mk('mk', 'Маркетолог', 'Лиды', getMood(cm, 5), cm, 5, 'лидов', cm >= 5 ? 'Воронка!' : cm > 0 ? 'Outreach.' : 'Жду.', leadsD.slice(0, 3).map((l: any) => ({ label: l.company_name || l.name || 'Лид', date: new Date(l.created_at).toLocaleDateString('ru') })), 'marketer-consulting'),
       mk('sl', 'Продавец', 'Сделки', getMood(clm, 2), clm, 2, 'сделок', clm > 0 ? 'Есть клиенты!' : 'Жду лидов.', [], 'seller-consulting'),
+      mk('dr-c', 'Директор', 'Управление', getMood(cm + clm, 3), cFeedbacks, 5, 'коррекций', cm + clm > 0 ? 'Контролирую воронку.' : 'Анализирую узкие места.', [], 'director-consulting'),
     ]
 
     const fsm = rs.filter((s: any) => s.potential === 'foundry').length
@@ -97,6 +105,7 @@ export function TwinTeams() {
       mk('sf', 'Скаут', 'Тренды', getMood(fsm, 15), fsm, 15, 'сигн./нед.', fsm > 0 ? 'Сканирую.' : 'Жду.', signals.filter((s: any) => s.potential === 'foundry').slice(0, 3).map(s => ({ label: s.company_name || 'Сигнал', date: new Date(s.created_at).toLocaleDateString('ru') })), 'scout-foundry'),
       mk('af', 'Аналитик', 'Идеи', getMood(fam, 5), fam, 5, 'инс./нед.', fam > 0 ? 'Оцениваю.' : 'Жду.', fI.slice(0, 3).map((i: any) => ({ label: i.title?.slice(0, 40) || 'Инсайт', date: new Date(i.created_at).toLocaleDateString('ru') })), 'analyst-foundry'),
       mk('bl', 'Создатель', 'MVP', getMood(bm, 1), bm, 1, 'проектов', bm > 0 ? 'В работе!' : 'Жду идею.', opps.slice(0, 3).map(o => ({ label: o.idea?.slice(0, 40) || 'Проект', date: new Date(o.created_at).toLocaleDateString('ru') })), 'builder-foundry'),
+      mk('dr-f', 'Директор', 'Управление', getMood(bm, 1), fFeedbacks, 3, 'коррекций', bm > 0 ? 'Контролирую pipeline.' : 'Анализирую воронку.', [], 'director-foundry'),
     ]
 
     setFactories([
@@ -131,7 +140,7 @@ function FactorySection({ factory, onFlowChange }: { factory: FactoryData; onFlo
         <div className="text-right"><p className="text-xs text-slate-500">{factory.goal}</p><p className="text-sm font-medium text-slate-300 mt-0.5">{hasActive ? '🟢 Работают' : '⏸️ Нет потоков'}</p></div>
       </div>
       <FlowManager factoryId={factory.id} flows={factory.flows} onChanged={onFlowChange} />
-      <div className={`grid gap-4 mt-4 ${factory.agents.length === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
+      <div className={`grid gap-4 mt-4 ${factory.agents.length === 5 ? 'sm:grid-cols-2 lg:grid-cols-5' : factory.agents.length === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3'}`}>
         {factory.agents.map(a => <AgentCard key={a.id} agent={a} onMandateUpdate={onFlowChange} />)}
       </div>
     </div>
@@ -142,95 +151,64 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
   const cfg = MOOD_STYLE[agent.mood]
   const prog = agent.target > 0 ? Math.min(100, Math.round((agent.metric / agent.target) * 100)) : 0
   const [exp, setExp] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [editText, setEditText] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [recording, setRecording] = useState(false)
-  const recognitionRef = useRef<any>(null)
-  const voiceBaseRef = useRef('')
+  const [chatOpen, setChatOpen] = useState(false)
 
-  const toggleVoice = () => {
-    if (recording) {
-      recognitionRef.current?.stop()
-      setRecording(false)
-      return
-    }
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SR) { alert('Браузер не поддерживает голосовой ввод. Используйте Chrome.'); return }
-    const recognition = new SR()
-    recognition.lang = 'ru-RU'
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.onresult = (e: any) => {
-      let final = '', interim = ''
-      for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) final += e.results[i][0].transcript
-        else interim += e.results[i][0].transcript
-      }
-      const base = voiceBaseRef.current
-      setEditText(base + (base ? '\n' : '') + final + interim)
-    }
-    recognition.onerror = () => setRecording(false)
-    recognition.onend = () => setRecording(false)
-    voiceBaseRef.current = editText
-    recognition.start()
-    recognitionRef.current = recognition
-    setRecording(true)
-  }
-
-  const saveMandate = async () => {
-    if (!agent.mandateKey) return; setSaving(true)
-    const dk = `mandate:${agent.mandateKey}`
-    const { data: ex } = await supabase.from('documents').select('id').eq('source_ref', dk).limit(1)
-    if (ex?.length) await supabase.from('documents').update({ content: editText, updated_at: new Date().toISOString() }).eq('id', ex[0].id)
-    else await supabase.from('documents').insert({ title: `Мандат: ${agent.name}`, content: editText, source_type: 'agent_mandate', source_ref: dk, source_name: agent.mandateKey })
-    setEditing(false); setSaving(false); onMandateUpdate?.()
-  }
+  const isDirector = agent.id.startsWith('dr-')
 
   return (
-    <div className={`rounded-xl border ${cfg.border} bg-slate-900/60 p-4 hover:bg-slate-900 group`}>
-      <div className="flex items-center gap-3 mb-3">
-        <div className="relative shrink-0"><div className="h-10 w-10 rounded-xl bg-slate-800 flex items-center justify-center text-lg">{cfg.emoji}</div>{cfg.pulse && <div className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />}</div>
-        <div><h4 className="font-bold text-slate-100 text-sm">{agent.name}</h4><p className="text-[11px] text-slate-500 truncate">{agent.role}</p></div>
-      </div>
-      <div className="mb-2">
-        <div className="flex items-center justify-between text-xs mb-1"><span className="text-slate-200 font-semibold">{agent.metric}/{agent.target}</span><span className="text-slate-500 text-[10px]">{agent.metricLabel}</span></div>
-        <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden"><div className={`h-full rounded-full transition-all duration-700 ${prog >= 100 ? 'bg-emerald-500' : prog >= 50 ? 'bg-blue-500' : prog >= 20 ? 'bg-amber-500' : 'bg-red-400'}`} style={{ width: `${prog}%` }} /></div>
-      </div>
-      <p className="text-[11px] text-slate-400 italic mb-2">"{agent.statusText}"</p>
-
-      {(agent.mandateSummary || agent.mandateFull) && !editing && (
-        <div className="pt-2 border-t border-slate-800/30">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Мандат</span>
-            <div className="flex gap-1">
-              {agent.mandateKey && <button onClick={() => { setEditText(agent.mandateFull || agent.mandateSummary || ''); setEditing(true) }} className="p-0.5 rounded hover:bg-slate-800 text-slate-500"><Pencil className="h-3 w-3" /></button>}
-              {agent.mandateFull && <button onClick={() => setExp(!exp)} className="p-0.5 rounded hover:bg-slate-800 text-slate-500">{exp ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}</button>}
+    <>
+      <div className={`rounded-xl border ${cfg.border} ${isDirector ? 'bg-purple-900/20' : 'bg-slate-900/60'} p-4 hover:bg-slate-900 group`}>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="relative shrink-0">
+            <div className={`h-10 w-10 rounded-xl ${isDirector ? 'bg-purple-800/40' : 'bg-slate-800'} flex items-center justify-center text-lg`}>
+              {isDirector ? '👔' : cfg.emoji}
             </div>
+            {cfg.pulse && <div className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />}
           </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed whitespace-pre-line">{exp ? agent.mandateFull : agent.mandateSummary}</p>
+          <div><h4 className="font-bold text-slate-100 text-sm">{agent.name}</h4><p className="text-[11px] text-slate-500 truncate">{agent.role}</p></div>
         </div>
-      )}
-      {editing && (
-        <div className="pt-2 border-t border-slate-800/30">
-          <textarea value={editText} onChange={e => { voiceBaseRef.current = e.target.value; setEditText(e.target.value) }} className="w-full text-[11px] p-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 resize-y min-h-[120px]" rows={8} />
-          <div className="flex items-center gap-1 mt-1.5">
-            <button onClick={toggleVoice} className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${recording ? 'bg-red-500/20 text-red-400 border border-red-500/40' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200'}`}>
-              {recording ? <><MicOff className="h-3 w-3" /> Стоп</> : <><Mic className="h-3 w-3" /> Голос</>}
-            </button>
-            {recording && <span className="text-[10px] text-red-400 animate-pulse">● Запись...</span>}
-            <div className="flex-1" />
-            <button onClick={saveMandate} disabled={saving} className="p-1 rounded hover:bg-slate-800 text-emerald-400">{saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}</button>
-            <button onClick={() => { recognitionRef.current?.stop(); setRecording(false); setEditing(false) }} className="p-1 rounded hover:bg-slate-800 text-red-400"><X className="h-3.5 w-3.5" /></button>
+        <div className="mb-2">
+          <div className="flex items-center justify-between text-xs mb-1"><span className="text-slate-200 font-semibold">{agent.metric}/{agent.target}</span><span className="text-slate-500 text-[10px]">{agent.metricLabel}</span></div>
+          <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden"><div className={`h-full rounded-full transition-all duration-700 ${prog >= 100 ? 'bg-emerald-500' : prog >= 50 ? 'bg-blue-500' : prog >= 20 ? 'bg-amber-500' : 'bg-red-400'}`} style={{ width: `${prog}%` }} /></div>
+        </div>
+        <p className="text-[11px] text-slate-400 italic mb-2">"{agent.statusText}"</p>
+
+        {(agent.mandateSummary || agent.mandateFull) && (
+          <div className="pt-2 border-t border-slate-800/30">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Мандат</span>
+              <div className="flex gap-1">
+                {agent.mandateKey && (
+                  <button onClick={() => setChatOpen(true)} className="flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-purple-800/30 text-purple-400 text-[10px]" title="Диалог с AI для корректировки мандата">
+                    <MessageSquare className="h-3 w-3" />
+                    <span className="hidden sm:inline">Изменить</span>
+                  </button>
+                )}
+                {agent.mandateFull && <button onClick={() => setExp(!exp)} className="p-0.5 rounded hover:bg-slate-800 text-slate-500">{exp ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}</button>}
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed whitespace-pre-line">{exp ? agent.mandateFull : agent.mandateSummary}</p>
           </div>
-        </div>
+        )}
+
+        {agent.recentItems.length > 0 && (
+          <div className="pt-2 border-t border-slate-800/30 space-y-1 mt-2">
+            {agent.recentItems.map((item, i) => <div key={i} className="flex items-center justify-between text-[10px]"><span className="text-slate-400 truncate mr-2">{item.label}</span><span className="text-slate-600 shrink-0">{item.date}</span></div>)}
+          </div>
+        )}
+      </div>
+
+      {agent.mandateKey && (
+        <MandateChatDialog
+          agentName={agent.name}
+          mandateKey={agent.mandateKey}
+          currentMandate={agent.mandateFull || agent.mandateSummary || ''}
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          onMandateUpdated={() => { onMandateUpdate?.() }}
+        />
       )}
-      {agent.recentItems.length > 0 && (
-        <div className="pt-2 border-t border-slate-800/30 space-y-1 mt-2">
-          {agent.recentItems.map((item, i) => <div key={i} className="flex items-center justify-between text-[10px]"><span className="text-slate-400 truncate mr-2">{item.label}</span><span className="text-slate-600 shrink-0">{item.date}</span></div>)}
-        </div>
-      )}
-    </div>
+    </>
   )
 }
 
@@ -240,8 +218,8 @@ function FlowManager({ factoryId, flows, onChanged }: { factoryId: string; flows
   const isF = factoryId === 'foundry'
   const reset = () => { setAdding(false); setEditingId(null); setName(''); setDesc(''); setCompanySize('50-500'); setRegion('Без ограничений'); setIndustry(''); setNotes('') }
 
-  const handleAdd = async () => { if (!name.trim()) return; setSaving(true); await supabase.from('factory_flows').insert({ factory: factoryId, name: name.trim(), description: desc, target_company_size: isF ? null : companySize, target_region: region, target_industry: industry || name, target_notes: notes }); reset(); setSaving(false); onChanged() }
-  const handleUpdate = async (id: string) => { setSaving(true); await supabase.from('factory_flows').update({ target_company_size: isF ? null : companySize, target_region: region, target_industry: industry, target_notes: notes, description: desc }).eq('id', id); setEditingId(null); setSaving(false); onChanged() }
+  const handleAdd = async () => { if (!name.trim()) return; setSaving(true); await supabase.from('factory_flows').insert({ factory: factoryId, name: name.trim(), description: desc, target_company_size: isF ? null : companySize, target_region: region, target_industry: industry || name, target_notes: notes } as any); reset(); setSaving(false); onChanged() }
+  const handleUpdate = async (id: string) => { setSaving(true); await supabase.from('factory_flows').update({ target_company_size: isF ? null : companySize, target_region: region, target_industry: industry, target_notes: notes, description: desc } as any).eq('id', id); setEditingId(null); setSaving(false); onChanged() }
   const startEdit = (f: FlowData) => { setEditingId(f.id); setDesc(f.description || ''); setCompanySize(f.target_company_size || '50-500'); setRegion(f.target_region || 'Без ограничений'); setIndustry(f.target_industry || ''); setNotes(f.target_notes || '') }
 
   return (
@@ -252,7 +230,7 @@ function FlowManager({ factoryId, flows, onChanged }: { factoryId: string; flows
           <div key={f.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${f.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border-amber-500/30'}`}>
             <span>{f.name}</span>
             <button onClick={() => startEdit(f)}><Settings2 className="h-3 w-3" /></button>
-            <button onClick={async () => { await supabase.from('factory_flows').update({ status: f.status === 'active' ? 'paused' : 'active' }).eq('id', f.id); onChanged() }}>{f.status === 'active' ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}</button>
+            <button onClick={async () => { await supabase.from('factory_flows').update({ status: f.status === 'active' ? 'paused' : 'active' } as any).eq('id', f.id); onChanged() }}>{f.status === 'active' ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}</button>
             <button onClick={async () => { await supabase.from('factory_flows').delete().eq('id', f.id); onChanged() }} className="hover:text-red-400"><Trash2 className="h-3 w-3" /></button>
           </div>
         ))}
@@ -265,13 +243,15 @@ function FlowManager({ factoryId, flows, onChanged }: { factoryId: string; flows
           <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Описание" className="w-full px-3 py-2 text-sm rounded-md border border-slate-700 bg-slate-900 text-slate-200" />
           <div className="grid grid-cols-2 gap-3">
             {!isF && <div><label className="text-[11px] text-slate-500">Размер</label><input value={companySize} onChange={e => setCompanySize(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm rounded-md border border-slate-700 bg-slate-900 text-slate-200" /></div>}
-            <div><label className="text-[11px] text-slate-500">{isF ? 'Ниша' : 'Индустрия'}</label><input value={industry} onChange={e => setIndustry(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm rounded-md border border-slate-700 bg-slate-900 text-slate-200" /></div>
             <div><label className="text-[11px] text-slate-500">Регион</label><input value={region} onChange={e => setRegion(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm rounded-md border border-slate-700 bg-slate-900 text-slate-200" /></div>
+            <div><label className="text-[11px] text-slate-500">Отрасль</label><input value={industry} onChange={e => setIndustry(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm rounded-md border border-slate-700 bg-slate-900 text-slate-200" /></div>
           </div>
-          <div><label className="text-[11px] text-slate-500">Доп.</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="w-full mt-1 px-3 py-2 text-sm rounded-md border border-slate-700 bg-slate-900 text-slate-200 resize-none" /></div>
-          <div className="flex gap-2">
-            <button onClick={adding ? handleAdd : () => handleUpdate(editingId!)} disabled={saving || (adding && !name.trim())} className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : adding ? 'Создать' : 'Сохранить'}</button>
-            <button onClick={reset} className="px-4 py-2 text-sm rounded-md border border-slate-700 text-slate-300">Отмена</button>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Заметки / критерии" className="w-full px-3 py-2 text-sm rounded-md border border-slate-700 bg-slate-900 text-slate-200 resize-y" rows={2} />
+          <div className="flex gap-2 justify-end">
+            <button onClick={reset} className="px-3 py-1.5 text-xs rounded-md border border-slate-700 text-slate-400 hover:bg-slate-800">Отмена</button>
+            <button onClick={adding ? handleAdd : () => editingId && handleUpdate(editingId)} disabled={saving} className="px-3 py-1.5 text-xs rounded-md bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50">
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : adding ? 'Создать' : 'Сохранить'}
+            </button>
           </div>
         </div>
       )}
