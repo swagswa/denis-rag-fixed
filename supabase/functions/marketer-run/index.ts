@@ -199,19 +199,12 @@ ${pairedResults[idx].websiteContent.slice(0, 1500)}
 ❌ ЗАПРЕЩЕНО: выдумывать имена, фамилии, email, telegram, linkedin — ДАЖЕ если они "звучат реалистично"
 ❌ ЗАПРЕЩЕНО: подставлять типичные имена (Иван Петров, Алексей Смирнов) если их НЕТ в результатах поиска
 ✅ РАЗРЕШЕНО: использовать ТОЛЬКО имена, контакты и компании, которые БУКВАЛЬНО присутствуют в тексте поиска выше
-✅ БОНУС: если есть "КОНТЕНТ САЙТА КОМПАНИИ" — используй КОНКРЕТНЫЕ детали с сайта для персонализации outreach (их продукты, технологии, проблемы, новости). Это СИЛЬНО повышает конверсию!
+✅ БОНУС: если есть "КОНТЕНТ САЙТА КОМПАНИИ" — используй КОНКРЕТНЫЕ детали с сайта для персонализации outreach
 
-ПРОВЕРКА ПЕРЕД ОТВЕТОМ:
-Для каждого лида спроси себя:
-1. Имя ЛПР — я ВИЖУ это имя в результатах поиска? (да/нет)
-2. Контакт — я ВИЖУ этот email/TG/LinkedIn в результатах? (да/нет)
-3. Компания — она УПОМИНАЕТСЯ в результатах? (да/нет)
-Если хотя бы один ответ "нет" — НЕ квалифицируй, верни reason.
+═══ ДВУХУРОВНЕВАЯ КВАЛИФИКАЦИЯ ═══
 
-Для каждого инсайта ниже:
-
-Если КВАЛИФИЦИРОВАН (РЕАЛЬНАЯ компания + РЕАЛЬНЫЙ человек ИЗ ПОИСКА + РЕАЛЬНЫЙ контакт ИЗ ПОИСКА):
-{"source_index":N, "qualified":true,
+УРОВЕНЬ A — ПОЛНЫЙ ЛИД (есть компания + ЛПР + контакт):
+{"source_index":N, "qualified":true, "level":"A",
  "company_name":"РЕАЛЬНОЕ название компании ИЗ РЕЗУЛЬТАТОВ ПОИСКА",
  "company_size":"~число сотрудников (оценка)",
  "company_website":"https://...",
@@ -227,8 +220,25 @@ ${pairedResults[idx].websiteContent.slice(0, 1500)}
  "outreach_message":"4-6 предложений. Обращение к человеку ПО ИМЕНИ. Начни с конкретного повода (вакансия, новость, статья). Без смайликов. Подпись: Денис Матеев, @deyuma",
  "approval_request":"Кому (Имя, должность, компания) + Что предложить + Канал связи + Ожидаемый чек"}
 
+УРОВЕНЬ B — КОМПАНИЯ БЕЗ КОНТАКТА (есть компания + сайт, но НЕТ ЛПР):
+{"source_index":N, "qualified":true, "level":"B",
+ "company_name":"РЕАЛЬНОЕ название компании ИЗ РЕЗУЛЬТАТОВ ПОИСКА",
+ "company_size":"~число сотрудников (оценка)",
+ "company_website":"https://...",
+ "their_pain":"Конкретная боль ЭТОЙ компании (из контента сайта или контекста поиска)",
+ "our_offer":"Что конкретно предложить",
+ "why_now":"Почему именно сейчас",
+ "expected_value":"₽ число",
+ "search_hints":"ГДЕ искать ЛПР: 1) LinkedIn: запрос '...'. 2) hh.ru: проверить вакансии компании. 3) Сайт: страница 'Команда'/'О нас'. 4) TG: @...",
+ "approval_request":"Компания + Боль + Что предложить + Где искать ЛПР + Ожидаемый чек"}
+
 Если НЕ КВАЛИФИЦИРОВАН:
-{"source_index":N, "qualified":false, "reason":"Конкретная причина: не нашёл реального ЛПР в результатах поиска / компания вне мандата / нет контакта"}
+{"source_index":N, "qualified":false, "reason":"Конкретная причина: не нашёл реальной компании / компания вне мандата"}
+
+ПРАВИЛА:
+- Уровень A — ПРИОРИТЕТ. Но если не нашёл контакт — обязательно попробуй Уровень B!
+- Раньше ты возвращал инсайт если нет контакта ЛПР. ТЕПЕРЬ: нет контакта → Уровень B (компания + где искать).
+- Возвращай "не квалифицирован" ТОЛЬКО если не нашёл даже КОМПАНИЮ.
 
 Верни JSON-массив. Без markdown.
 ${selfOptimizationPrompt}
@@ -272,61 +282,146 @@ ${brief}`;
       if (!insight) continue;
 
       if (item.qualified) {
+        const level = item.level || "A";
         const cn = compact(item.company_name, 120);
-        const contactName = compact(item.contact_name, 100);
-        const contactChannel = compact(item.contact_channel, 200);
-        const msg = compact(item.outreach_message, 800);
-        const searchEvidence = compact(item.search_evidence, 300);
 
-        // HARD VALIDATION: must have company, person name, contact, and message
-        if (!cn || !contactName || !contactChannel || !msg) {
-          await supabase.from("insights").update({ status: "returned", notes: "Маркетолог: не удалось найти конкретного ЛПР с контактом.", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
-          try { await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "quality_issue", content: `"${insight.title}": нет конкретного ЛПР с контактом. Нужен инсайт с более конкретной компанией/отраслью.` } as any); } catch {}
+        if (!cn) {
+          await supabase.from("insights").update({ status: "returned", notes: "Маркетолог: не найдена реальная компания в результатах поиска.", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
           returned++;
           continue;
         }
 
-        // ═══ ANTI-HALLUCINATION: verify contact exists in search results ═══
-        const searchData = pairedResults[idx - 1];
-        const allSearchText = `${searchData?.companies || ""} ${searchData?.contacts || ""}`.toLowerCase();
-        const nameParts = contactName.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
-        const nameFoundInSearch = nameParts.length > 0 && nameParts.some((part: string) => allSearchText.includes(part));
+        if (level === "A") {
+          // ═══ УРОВЕНЬ A: Полный лид с контактом ═══
+          const contactName = compact(item.contact_name, 100);
+          const contactChannel = compact(item.contact_channel, 200);
+          const msg = compact(item.outreach_message, 800);
+          const searchEvidence = compact(item.search_evidence, 300);
 
-        if (!nameFoundInSearch && FIRECRAWL_API_KEY) {
-          console.log(`[marketer] ❌ HALLUCINATED contact: "${contactName}" not found in search results for "${cn}"`);
-          await supabase.from("insights").update({ status: "returned", notes: `Маркетолог: контакт "${contactName}" не найден в результатах поиска — возможна галлюцинация.`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);
-          try { await supabase.from("agent_feedback").insert({ factory: "consulting", from_agent: "marketer", to_agent: "analyst", feedback_type: "hallucination", content: `"${insight.title}": GPT выдумал контакт "${contactName}". Этого человека нет в результатах Firecrawl. Нужен инсайт с более конкретной компанией, чтобы поиск дал результаты.` } as any); } catch {}
-          returned++;
-          continue;
+          if (!contactName || !contactChannel || !msg) {
+            // Downgrade to level B
+            const detail = [
+              `📨 КОМПАНИЯ: ${cn}`,
+              item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
+              item.company_website ? `🌐 ${item.company_website}` : null,
+              `🔥 ${compact(item.their_pain, 200)}`,
+              `💡 ${compact(item.our_offer, 200)}`,
+              `⏰ ${compact(item.why_now, 150)}`,
+              `💰 ${compact(item.expected_value, 100)}`,
+              ``, `🔍 ГДЕ ИСКАТЬ ЛПР: Найти через LinkedIn/hh.ru/сайт компании`,
+            ].filter(Boolean).join("\n");
+
+            const { error: le } = await supabase.from("leads").insert({
+              company_name: cn,
+              name: null,
+              role: null,
+              message: compact(detail, 800),
+              lead_summary: compact(item.approval_request, 300) || `${cn}: ${compact(item.our_offer, 150)}`,
+              topic_guess: `insight:${insight.id}`,
+              status: "needs_contact",
+            } as any);
+
+            if (le) { console.error("Lead insert:", le); continue; }
+            await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+            leadsCreated++;
+            console.log(`[marketer] ✅ LEVEL B (downgraded): ${cn}`);
+            continue;
+          }
+
+          // ═══ ANTI-HALLUCINATION: verify contact exists in search results ═══
+          const searchData = pairedResults[idx - 1];
+          const allSearchText = `${searchData?.companies || ""} ${searchData?.contacts || ""}`.toLowerCase();
+          const nameParts = contactName.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
+          const nameFoundInSearch = nameParts.length > 0 && nameParts.some((part: string) => allSearchText.includes(part));
+
+          if (!nameFoundInSearch && FIRECRAWL_API_KEY) {
+            // Downgrade to level B instead of returning
+            console.log(`[marketer] ⚠️ Contact "${contactName}" not in search — downgrading to Level B for "${cn}"`);
+
+            const detail = [
+              `📨 КОМПАНИЯ: ${cn}`,
+              item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
+              item.company_website ? `🌐 ${item.company_website}` : null,
+              `🔥 ${compact(item.their_pain, 200)}`,
+              `💡 ${compact(item.our_offer, 200)}`,
+              `⏰ ${compact(item.why_now, 150)}`,
+              `💰 ${compact(item.expected_value, 100)}`,
+              ``, `🔍 ГДЕ ИСКАТЬ ЛПР: контакт "${contactName}" не подтверждён поиском. Проверить: LinkedIn, hh.ru вакансии компании, страница "Команда" на сайте.`,
+            ].filter(Boolean).join("\n");
+
+            const { error: le } = await supabase.from("leads").insert({
+              company_name: cn,
+              name: null,
+              role: compact(item.contact_role, 80) || null,
+              message: compact(detail, 800),
+              lead_summary: compact(item.approval_request, 300) || `${cn}: ${compact(item.our_offer, 150)}`,
+              topic_guess: `insight:${insight.id}`,
+              status: "needs_contact",
+            } as any);
+
+            if (le) { console.error("Lead insert:", le); continue; }
+            await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+            leadsCreated++;
+            continue;
+          }
+
+          const detail = [
+            `📨 КОМУ: ${contactName}, ${item.contact_role || "ЛПР"} — ${cn}`,
+            item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
+            item.company_website ? `🌐 ${item.company_website}` : null,
+            `📱 КОНТАКТ: ${contactChannel}`,
+            `🔥 ${compact(item.their_pain, 200)}`,
+            `💡 ${compact(item.our_offer, 200)}`,
+            `⏰ ${compact(item.why_now, 150)}`,
+            `💰 ${compact(item.expected_value, 100)}`,
+            ``, `📧 Тема: ${compact(item.outreach_subject, 100)}`, ``,
+            `--- ТЕКСТ ---`, msg, `--- КОНЕЦ ---`,
+          ].filter(Boolean).join("\n");
+
+          const { error: le } = await supabase.from("leads").insert({
+            company_name: cn,
+            name: contactName,
+            role: compact(item.contact_role, 80) || null,
+            message: compact(detail, 800),
+            lead_summary: compact(item.approval_request, 300) || `${contactName} (${item.contact_role}) @ ${cn}: ${compact(item.our_offer, 150)}`,
+            topic_guess: `insight:${insight.id}`,
+            status: "pending_approval",
+          } as any);
+
+          if (le) { console.error("Lead insert:", le); continue; }
+          await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+          leadsCreated++;
+          console.log(`[marketer] ✅ LEVEL A: ${contactName} @ ${cn}`);
+
+        } else {
+          // ═══ УРОВЕНЬ B: Компания без контакта ═══
+          const detail = [
+            `📨 КОМПАНИЯ: ${cn}`,
+            item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
+            item.company_website ? `🌐 ${item.company_website}` : null,
+            `🔥 ${compact(item.their_pain, 200)}`,
+            `💡 ${compact(item.our_offer, 200)}`,
+            `⏰ ${compact(item.why_now, 150)}`,
+            `💰 ${compact(item.expected_value, 100)}`,
+            ``, `🔍 ГДЕ ИСКАТЬ ЛПР:`, compact(item.search_hints, 300),
+          ].filter(Boolean).join("\n");
+
+          const { error: le } = await supabase.from("leads").insert({
+            company_name: cn,
+            name: null,
+            role: null,
+            message: compact(detail, 800),
+            lead_summary: compact(item.approval_request, 300) || `${cn}: ${compact(item.our_offer, 150)}`,
+            topic_guess: `insight:${insight.id}`,
+            status: "needs_contact",
+          } as any);
+
+          if (le) { console.error("Lead insert:", le); continue; }
+          await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
+          leadsCreated++;
+          console.log(`[marketer] ✅ LEVEL B: ${cn}`);
         }
 
-        const detail = [
-          `📨 КОМУ: ${contactName}, ${item.contact_role || "ЛПР"} — ${cn}`,
-          item.company_size ? `👥 ~${item.company_size} сотрудников` : null,
-          item.company_website ? `🌐 ${item.company_website}` : null,
-          `📱 КОНТАКТ: ${contactChannel}`,
-          `🔥 ${compact(item.their_pain, 200)}`,
-          `💡 ${compact(item.our_offer, 200)}`,
-          `⏰ ${compact(item.why_now, 150)}`,
-          `💰 ${compact(item.expected_value, 100)}`,
-          ``, `📧 Тема: ${compact(item.outreach_subject, 100)}`, ``,
-          `--- ТЕКСТ ---`, msg, `--- КОНЕЦ ---`,
-        ].filter(Boolean).join("\n");
-
-        const { error: le } = await supabase.from("leads").insert({
-          company_name: cn,
-          name: contactName,
-          role: compact(item.contact_role, 80) || null,
-          message: compact(detail, 800),
-          lead_summary: compact(item.approval_request, 300) || `${contactName} (${item.contact_role}) @ ${cn}: ${compact(item.our_offer, 150)}`,
-          topic_guess: `insight:${insight.id}`,
-          status: "pending_approval",
-        } as any);
-
-        if (le) { console.error("Lead insert:", le); continue; }
-        await supabase.from("insights").update({ status: "qualified", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
-        leadsCreated++;
-        console.log(`[marketer] ✅ ${contactName} @ ${cn}`);
       } else {
         const reason = compact(item.reason, 300);
         await supabase.from("insights").update({ status: "returned", notes: `Маркетолог: ${reason}`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);

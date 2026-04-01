@@ -115,6 +115,31 @@ ${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала
 `;
     }
 
+    // ═══ PHASE 0.8: БАЗА ЗНАНИЙ — загрузить существующие инсайты и лиды для контекста ═══
+    const { data: pastInsights } = await supabase
+      .from("insights")
+      .select("title, company_name, problem, action_proposal, opportunity_type, status")
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    const { data: pastLeads } = await supabase
+      .from("leads")
+      .select("company_name, lead_summary, status")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    const knowledgeInsights = (pastInsights || []).length > 0
+      ? (pastInsights || [])
+          .map((ins: any, i: number) => `[I${i + 1}|${ins.status}] ${ins.opportunity_type} | ${ins.title} | ${(ins.problem || "").slice(0, 80)}`)
+          .join("\n")
+      : "";
+
+    const knowledgeLeads = (pastLeads || []).length > 0
+      ? (pastLeads || [])
+          .map((l: any, i: number) => `[L${i + 1}|${l.status}] ${l.company_name || "?"} | ${(l.lead_summary || "").slice(0, 100)}`)
+          .join("\n")
+      : "";
+
     // ═══ PHASE 1: Process NEW signals (including recycled ones) ═══
     // Filter signals by factory to prevent cross-contamination
     const isFoundry = factory === "foundry";
@@ -196,9 +221,25 @@ ${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала
 - Размер целевых компаний: 5-500 сотрудников. Крупные корпорации (1С, Яндекс, Сбер, МТС и т.п.) — НЕ наши клиенты.
 - Регион: РФ/СНГ
 
+ВАЖНО — КОНВЕРСИЯ:
+- Создавай инсайт из КАЖДОГО сигнала, если он хоть МИНИМАЛЬНО релевантен нашему мандату.
+- МИНИМУМ 60% сигналов должны стать инсайтами. Если сомневаешься — СОЗДАЙ инсайт. Маркетолог отфильтрует слабые.
+- Не будь перфекционистом. Лучше 10 средних инсайтов, чем 2 идеальных.
+
 ТВОЯ РОЛЬ — АНАЛИТИК, НЕ МАРКЕТОЛОГ:
 Ты создаёшь ИНСАЙТЫ и ТЕМЫ — ценные наблюдения о рыночных трендах, болях и возможностях.
 Ты НЕ ищешь конкретные компании и НЕ составляешь outreach. Это задача Маркетолога на следующем этапе.
+
+${knowledgeInsights ? `═══ БАЗА ЗНАНИЙ — НАШИ ПРОШЛЫЕ ИНСАЙТЫ ═══
+Используй как контекст! НЕ дублируй, но УСИЛИВАЙ:
+- Если новый сигнал связан с темой старого инсайта — создай УСИЛЕННЫЙ инсайт с новыми данными
+- Если старый инсайт был "returned" — учти почему (слишком абстрактный? нет профиля ЦА?) и сделай ЛУЧШЕ
+- Если есть успешные лиды — ищи ПОХОЖИЕ сигналы в тех же отраслях
+
+ИНСАЙТЫ:
+${knowledgeInsights}
+${knowledgeLeads ? `\nЛИДЫ:\n${knowledgeLeads}` : ""}
+═══ КОНЕЦ БАЗЫ ЗНАНИЙ ═══\n\n` : ""}
 
 КРИТИЧЕСКИ ВАЖНО:
 - Каждый инсайт = ТЕМА + БОЛЬ + РЕШЕНИЕ + ПОЧЕМУ СЕЙЧАС
@@ -349,7 +390,7 @@ ${brief}`;
       body: JSON.stringify({
         model: "gpt-4o",
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
+        temperature: 0.5,
       }),
     });
 
