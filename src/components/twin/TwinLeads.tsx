@@ -45,14 +45,24 @@ export function TwinLeads({ sellerMode }: { sellerMode?: boolean }) {
   const handleApprove = async (id: string) => { await supabase.from('leads').update({ status: 'approved' }).eq('id', id); toast.success('Одобрен'); load() }
   const handleReject = async (id: string) => { await supabase.from('leads').update({ status: 'rejected' }).eq('id', id); toast.success('Отклонён'); load() }
 
-  const handleSendOutreach = async (id: string) => {
+  const handleSendOutreach = async (id: string, channel?: string) => {
     setSendingId(id)
     try {
-      const res = await edgeFetch('send-outreach', { method: 'POST', body: JSON.stringify({ lead_id: id }) })
+      const res = await edgeFetch('send-outreach', { method: 'POST', body: JSON.stringify({ lead_id: id, channel }) })
       const data = await res.json()
-      if (data?.success) toast.success(`Отправлено на ${data.recipient}`)
-      else toast.error(data?.error || 'Ошибка')
+      if (data?.success && data?.sent) {
+        toast.success(`✉️ Отправлено (${data.channel === 'telegram' ? 'Telegram' : 'Email'})${data.to ? ' → ' + data.to : ''}`)
+      } else if (data?.success && !data?.sent) {
+        toast.info(data.note || 'Подготовлено для ручной отправки')
+      } else {
+        toast.error(data?.error || 'Ошибка')
+      }
     } catch (err: any) { toast.error(err.message) } finally { setSendingId(null); load() }
+  }
+
+  const handleApproveAndSend = async (id: string, channel?: string) => {
+    await supabase.from('leads').update({ status: 'approved' }).eq('id', id)
+    await handleSendOutreach(id, channel)
   }
 
   if (loading) return <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" /></div>
