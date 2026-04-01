@@ -390,7 +390,7 @@ ${brief}`;
       body: JSON.stringify({
         model: "gpt-4o",
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
+        temperature: 0.5,
       }),
     });
 
