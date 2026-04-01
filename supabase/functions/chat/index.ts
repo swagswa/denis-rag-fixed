@@ -8,9 +8,9 @@ const corsHeaders = {
 
 async function notifyOwner(eventType: string, data: any) {
   try {
-    const url = Deno.env.get("SUPABASE_URL");
-    const key = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!url || !key) return;
+    // Use original Supabase for notifications (not Lovable Cloud)
+    const url = "https://kuodvlyepoojqimutmvu.supabase.co";
+    const key = "sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS";
     await fetch(`${url}/functions/v1/notify-owner`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
@@ -252,6 +252,16 @@ serve(async (req) => {
     const pageUrl = body?.pageContext?.url || null;
     const lastUserMessage = [...messages].reverse().find(m => m.role === "user")?.content || "";
 
+    // ═══ NOTIFY: New conversation started (first message only) ═══
+    const userMessages = messages.filter(m => m.role === "user");
+    if (userMessages.length === 1) {
+      await notifyOwner("new_conversation", {
+        site_id: pageUrl || "unknown",
+        visitor_id: sessionId?.slice(0, 8),
+        first_message: userMessages[0].content?.slice(0, 200),
+      });
+    }
+
     // ═══ LEAD DETECTION & SAVE ═══
     if (supabase) {
       const lead = detectContactInfo(messages);
@@ -375,11 +385,6 @@ serve(async (req) => {
               console.warn("Conversation insert error:", convErr.message);
             } else {
               console.log("Conversation saved, session:", sessionId.slice(0, 8));
-              await notifyOwner("new_conversation", {
-                site_id: pageUrl || "unknown",
-                visitor_id: sessionId?.slice(0, 8),
-                first_message: lastUserMessage?.slice(0, 200),
-              });
             }
           } catch (e) {
             console.warn("Conversation save error (non-fatal):", e);

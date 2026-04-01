@@ -92,8 +92,8 @@ serve(async (req) => {
       const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
       const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-      // Update KPI
-      await supabase.rpc("update_agent_kpi").catch(() => {});
+      // Update KPI — skip if rpc doesn't exist
+      try { await supabase.rpc("update_agent_kpi"); } catch {}
 
       // Load current month stats for funnel analysis
       const monthStart = new Date();
@@ -104,7 +104,7 @@ serve(async (req) => {
       const [signalsRes, insightsRes, leadsRes, oppsRes, feedbackRes, kpiRes] = await Promise.all([
         supabase.from("signals").select("id, potential, status").gte("created_at", monthISO),
         supabase.from("insights").select("id, opportunity_type, status").gte("created_at", monthISO),
-        supabase.from("leads").select("id, status").gte("created_at", monthISO).not("session_id", "is", null).is("session_id", null), // agent leads only
+        supabase.from("leads").select("id, status").gte("created_at", monthISO),
         supabase.from("startup_opportunities").select("id, stage").gte("created_at", monthISO),
         supabase.from("agent_feedback").select("id, resolved").eq("resolved", false),
         supabase.from("agent_kpi").select("factory, metric, target, current").eq("active", true),
