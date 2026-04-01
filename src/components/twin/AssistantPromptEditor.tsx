@@ -14,6 +14,14 @@ const PRODUCT_OPTIONS: { value: ProductContext; label: string }[] = [
   { value: 'aitransformation', label: 'AI-Трансформация' },
 ]
 
+// Maps UI product keys → site_id in assistant_prompts table
+const SITE_ID_MAP: Record<ProductContext, string> = {
+  general: 'denismateev',
+  foundry: 'foundry',
+  aisovetnik: 'aisovetnik',
+  aitransformation: 'aitransformation',
+}
+
 const SECTION_MAP: Record<ProductContext, string> = {
   general: 'denismateev.ru',
   foundry: 'agent-fo.lovableproject.com',
@@ -24,63 +32,66 @@ const SECTION_MAP: Record<ProductContext, string> = {
 export function AssistantPromptEditor() {
   const [selectedProduct, setSelectedProduct] = useState<ProductContext>('general')
   const [promptText, setPromptText] = useState('')
-  const [systemPrompt, setSystemPrompt] = useState('')
-  const [productPrompts, setProductPrompts] = useState<Record<string, string>>({})
-  const [settingsId, setSettingsId] = useState<string | null>(null)
+  const [promptsMap, setPromptsMap] = useState<Record<string, { id: string; text: string }>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showDefault, setShowDefault] = useState(false)
 
+  // Load all prompts from assistant_prompts table
   useEffect(() => {
     const load = async () => {
       const { data, error } = await supabase
-        .from('settings')
-        .select('id, system_prompt, product_prompts')
-        .limit(1)
-        .single() as any
+        .from('assistant_prompts')
+        .select('id, site_id, system_prompt, active')
+        .eq('active', true)
 
-      if (error) console.error('Settings load error:', error)
+      if (error) console.error('Prompts load error:', error)
 
+      const map: Record<string, { id: string; text: string }> = {}
       if (data) {
-        setSettingsId(data.id)
-        setSystemPrompt(data.system_prompt || '')
-        setProductPrompts(data.product_prompts || {})
+        data.forEach((row: any) => {
+          map[row.site_id] = { id: row.id, text: row.system_prompt || '' }
+        })
       }
-
+      setPromptsMap(map)
       setLoading(false)
     }
 
     load()
   }, [])
 
+  // When product selection changes, show the correct prompt
   useEffect(() => {
-    if (selectedProduct === 'general') {
-      setPromptText(systemPrompt)
-    } else {
-      setPromptText(productPrompts[selectedProduct] || '')
-    }
+    const siteId = SITE_ID_MAP[selectedProduct]
+    setPromptText(promptsMap[siteId]?.text || '')
     setShowDefault(false)
-  }, [selectedProduct, systemPrompt, productPrompts])
+  }, [selectedProduct, promptsMap])
 
   const persistPrompt = async (product: ProductContext, value: string) => {
-    if (!settingsId) throw new Error('Настройки не загружены')
+    const siteId = SITE_ID_MAP[product]
+    const existing = promptsMap[siteId]
 
-    if (product === 'general') {
-      const { error } = await supabase.from('settings').update({ system_prompt: value }).eq('id', settingsId)
+    if (existing) {
+      // Update existing row
+      const { error } = await supabase
+        .from('assistant_prompts')
+        .update({ system_prompt: value, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
       if (error) throw error
-      setSystemPrompt(value)
-      return
+      setPromptsMap(prev => ({ ...prev, [siteId]: { ...existing, text: value } }))
+    } else {
+      // Insert new row
+      const { data, error } = await supabase
+        .from('assistant_prompts')
+        .insert({ site_id: siteId, system_prompt: value, active: true })
+        .select('id')
+        .single()
+      if (error) throw error
+      setPromptsMap(prev => ({ ...prev, [siteId]: { id: data.id, text: value } }))
     }
-
-    const updated = { ...productPrompts, [product]: value }
-    if (!value.trim()) delete updated[product]
-    const { error } = await supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId)
-    if (error) throw error
-    setProductPrompts(updated)
   }
 
   const handleSave = async () => {
-    if (!settingsId) return
     setSaving(true)
     try {
       await persistPrompt(selectedProduct, promptText)
@@ -94,12 +105,6 @@ export function AssistantPromptEditor() {
 
   const handleApplyRefinedPrompt = async (newPrompt: string) => {
     setPromptText(newPrompt)
-
-    if (!settingsId) {
-      toast.error('Промпт обновлён локально. Нажмите «Сохранить».')
-      return
-    }
-
     setSaving(true)
     try {
       await persistPrompt(selectedProduct, newPrompt)
@@ -149,18 +154,16 @@ export function AssistantPromptEditor() {
 
           {showDefault && (
             <div className="mb-2 max-h-32 overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-slate-500 font-mono whitespace-pre-wrap">
-              {selectedProduct === 'general'
-                ? 'Основной промпт. Если пусто — используется базовый из edge function.'
-                : `Промпт для "${PRODUCT_OPTIONS.find(o => o.value === selectedProduct)?.label}". Пусто = дефолт из edge function.`}
+              {`Промпт для "${PRODUCT_OPTIONS.find(o => o.value === selectedProduct)?.label}".
+Сохраняется в таблицу assistant_prompts (site_id = "${SITE_ID_MAP[selectedProduct]}").
+Чат-ассистент на сайте читает этот промпт автоматически.`}
             </div>
           )}
 
           <textarea
             value={promptText}
             onChange={e => setPromptText(e.target.value)}
-            placeholder={selectedProduct === 'general'
-              ? 'Системный промпт для основного сайта...'
-              : `Промпт для ${PRODUCT_OPTIONS.find(o => o.value === selectedProduct)?.label}...`}
+            placeholder={`Промпт для ${PRODUCT_OPTIONS.find(o => o.value === selectedProduct)?.label}...`}
             className="flex-1 min-h-0 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100 resize-none font-mono leading-relaxed"
           />
 
@@ -173,20 +176,6 @@ export function AssistantPromptEditor() {
               <Save className="h-3.5 w-3.5" />
               {saving ? 'Сохранение...' : 'Сохранить'}
             </button>
-            {selectedProduct !== 'general' && productPrompts[selectedProduct] && (
-              <button
-                onClick={() => {
-                  setPromptText('')
-                  const updated = { ...productPrompts }
-                  delete updated[selectedProduct]
-                  setProductPrompts(updated)
-                  supabase.from('settings').update({ product_prompts: updated }).eq('id', settingsId!).then(() => toast.success('Сброшено на дефолт'))
-                }}
-                className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
-              >
-                Сбросить
-              </button>
-            )}
           </div>
         </div>
 
