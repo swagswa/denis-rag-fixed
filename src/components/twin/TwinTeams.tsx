@@ -162,15 +162,13 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
     recognition.continuous = true
     recognition.interimResults = true
     recognition.onresult = (e: any) => {
-      let transcript = ''
+      let final = '', interim = ''
       for (let i = 0; i < e.results.length; i++) {
-        transcript += e.results[i][0].transcript
+        if (e.results[i].isFinal) final += e.results[i][0].transcript
+        else interim += e.results[i][0].transcript
       }
-      setEditText(prev => {
-        // Replace only the voice portion at the end
-        const base = prev.endsWith('\n') ? prev : prev ? prev + '\n' : ''
-        return base + transcript
-      })
+      const base = voiceBaseRef.current
+      setEditText(base + (base ? '\n' : '') + final + interim)
     }
     recognition.onerror = () => setRecording(false)
     recognition.onend = () => setRecording(false)
