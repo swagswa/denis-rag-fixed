@@ -67,7 +67,7 @@ export function TwinTeams() {
       supabase.from('leads').select('id, name, company_name, created_at, status').order('created_at', { ascending: false }).limit(20),
       supabase.from('startup_opportunities').select('id, idea, created_at, stage').order('created_at', { ascending: false }).limit(20),
       supabase.from('factory_flows').select('*').order('created_at', { ascending: false }),
-      supabase.from('agent_feedback').select('id, factory, from_agent, created_at').eq('from_agent' as any, 'chain-runner').order('created_at', { ascending: false }).limit(10),
+      (supabase as any).from('agent_feedback').select('id, factory, from_agent, created_at').eq('from_agent', 'chain-runner').order('created_at', { ascending: false }).limit(10),
     ])
 
     const signals = sR.data || []; const insights = iR.data || []; const leadsD = lR.data || []; const opps = oR.data || []; const allFlows = fR.data || []
