@@ -145,6 +145,38 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
   const [saving, setSaving] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const recognitionRef = useState<any>(null)
+
+  const toggleVoice = () => {
+    if (recording) {
+      recognitionRef[0]?.stop()
+      setRecording(false)
+      return
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) { alert('Браузер не поддерживает голосовой ввод. Используйте Chrome.'); return }
+    const recognition = new SR()
+    recognition.lang = 'ru-RU'
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.onresult = (e: any) => {
+      let transcript = ''
+      for (let i = 0; i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript
+      }
+      setEditText(prev => {
+        // Replace only the voice portion at the end
+        const base = prev.endsWith('\n') ? prev : prev ? prev + '\n' : ''
+        return base + transcript
+      })
+    }
+    recognition.onerror = () => setRecording(false)
+    recognition.onend = () => setRecording(false)
+    recognition.start()
+    recognitionRef[0] = recognition
+    setRecording(true)
+  }
 
   const saveMandate = async () => {
     if (!agent.mandateKey) return; setSaving(true)
