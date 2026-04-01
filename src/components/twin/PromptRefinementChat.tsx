@@ -58,48 +58,10 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState('')
   const [history, setHistory] = useState<HistoryItem[]>([])
-  const [isRecording, setIsRecording] = useState(false)
-  const recognitionRef = useRef<any>(null)
 
-  useEffect(() => {
-    return () => { recognitionRef.current?.stop() }
-  }, [])
-
-  const toggleVoice = useCallback(() => {
-    if (isRecording) {
-      recognitionRef.current?.stop()
-      setIsRecording(false)
-      return
-    }
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) {
-      setStatus('Голосовой ввод не поддерживается в этом браузере')
-      return
-    }
-
-    const recognition = new SpeechRecognition()
-    recognition.lang = 'ru-RU'
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognitionRef.current = recognition
-
-    let finalTranscript = ''
-    recognition.onresult = (event: any) => {
-      let interim = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript
-        if (event.results[i].isFinal) finalTranscript += t + ' '
-        else interim = t
-      }
-      setInput(finalTranscript + interim)
-    }
-
-    recognition.onerror = () => setIsRecording(false)
-    recognition.onend = () => setIsRecording(false)
-    recognition.start()
-    setIsRecording(true)
-  }, [isRecording])
+  const voice = useVoiceInput(useCallback((text: string) => {
+    setInput(prev => prev ? prev + ' ' + text : text)
+  }, []))
 
   const handleRefine = useCallback(async () => {
     const instruction = input.trim()
