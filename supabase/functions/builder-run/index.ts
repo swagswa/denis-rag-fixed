@@ -1,4 +1,4 @@
-// builder-run v3 — FIXED: source_index, parse resilience, logging
+// builder-run v4 — with Telegram notifications
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -10,6 +10,19 @@ const corsHeaders = {
 function compactText(value: unknown, max = 900) {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+async function notifyOwner(eventType: string, data: any) {
+  try {
+    const url = Deno.env.get("SUPABASE_URL");
+    const key = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!url || !key) return;
+    await fetch(`${url}/functions/v1/notify-owner`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ event_type: eventType, data }),
+    });
+  } catch (e) { console.warn("[notify] failed:", e); }
 }
 
 function resolveIndex(raw: unknown, queueLen: number): number | null {
@@ -304,6 +317,12 @@ ${filteredBrief}`;
         await supabase.from("insights").update({ status: "processed", updated_at: new Date().toISOString() } as any).eq("id", insight.id);
         oppsCreated++;
         console.log(`[builder] ✅ Created: "${item.idea}"`);
+        await notifyOwner("project_ready", {
+          idea: item.idea, market: item.market,
+          revenue_estimate: item.revenue_estimate,
+          complexity: item.complexity,
+          problem: item.problem, solution: item.solution,
+        });
       } else {
         const reason = compactText(item.reason, 300);
         await supabase.from("insights").update({ status: "returned", notes: `Билдер: ${reason}`, updated_at: new Date().toISOString() } as any).eq("id", insight.id);

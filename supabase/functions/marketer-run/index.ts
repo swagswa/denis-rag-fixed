@@ -1,4 +1,4 @@
-// marketer-run v6 — FIXED: source_index, parse resilience, Level B priority
+// marketer-run v7 — with Telegram notifications
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -10,6 +10,19 @@ const corsHeaders = {
 function compact(v: unknown, max = 900) {
   if (typeof v !== "string") return "";
   return v.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+async function notifyOwner(eventType: string, data: any) {
+  try {
+    const url = Deno.env.get("SUPABASE_URL");
+    const key = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!url || !key) return;
+    await fetch(`${url}/functions/v1/notify-owner`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ event_type: eventType, data }),
+    });
+  } catch (e) { console.warn("[notify] failed:", e); }
 }
 
 async function firecrawlSearch(query: string, apiKey: string): Promise<string> {
@@ -481,6 +494,13 @@ ${brief}`;
     }
 
     if (leadsCreated > 0) {
+      // Notify owner about new leads
+      await notifyOwner("outreach_ready", {
+        company_name: `${leadsCreated} новых лидов`,
+        channel: "batch",
+        preview: `Маркетолог обработал ${queue.length} инсайтов → ${leadsCreated} лидов, ${returned} отклонено`,
+      });
+
       try {
         await supabase.from("agent_feedback").insert({
           factory: "consulting", from_agent: "marketer", to_agent: "scout",
