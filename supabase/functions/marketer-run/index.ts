@@ -481,6 +481,13 @@ ${brief}`;
     }
 
     if (leadsCreated > 0) {
+      // Notify owner about new leads
+      await notifyOwner("outreach_ready", {
+        company_name: `${leadsCreated} новых лидов`,
+        channel: "batch",
+        preview: `Маркетолог обработал ${queue.length} инсайтов → ${leadsCreated} лидов, ${returned} отклонено`,
+      });
+
       try {
         await supabase.from("agent_feedback").insert({
           factory: "consulting", from_agent: "marketer", to_agent: "scout",
