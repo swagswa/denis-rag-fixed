@@ -92,8 +92,8 @@ serve(async (req) => {
       const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
       const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-      // Update KPI
-      await supabase.rpc("update_agent_kpi").catch(() => {});
+      // Update KPI — skip if rpc doesn't exist
+      try { await supabase.rpc("update_agent_kpi"); } catch {}
 
       // Load current month stats for funnel analysis
       const monthStart = new Date();
