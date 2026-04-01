@@ -12,6 +12,19 @@ function compact(v: unknown, max = 900) {
   return v.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+async function notifyOwner(eventType: string, data: any) {
+  try {
+    const url = Deno.env.get("SUPABASE_URL");
+    const key = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!url || !key) return;
+    await fetch(`${url}/functions/v1/notify-owner`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ event_type: eventType, data }),
+    });
+  } catch (e) { console.warn("[notify] failed:", e); }
+}
+
 async function firecrawlSearch(query: string, apiKey: string): Promise<string> {
   try {
     const res = await fetch("https://api.firecrawl.dev/v1/search", {
