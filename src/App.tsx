@@ -114,7 +114,7 @@ export default function App() {
       // Factory agents
       case 'consulting-scout': return <TwinSignals factory="consulting" />
       case 'consulting-analyst': return <TwinInsights factory="consulting" role="analyst" />
-      case 'consulting-marketer': return <TwinInsights factory="consulting" role="marketer" />
+      case 'consulting-marketer': return <TwinLeads />
       case 'consulting-closer': return <TwinLeads sellerMode />
       case 'foundry-scout': return <TwinSignals factory="foundry" />
       case 'foundry-analyst': return <TwinInsights factory="foundry" role="analyst" />
