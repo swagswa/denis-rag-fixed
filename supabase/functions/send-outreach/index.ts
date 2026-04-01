@@ -1,4 +1,4 @@
-// send-outreach — отправляет outreach через Gmail SMTP или Telegram
+// send-outreach — отправляет outreach через Gmail SMTP или Telegram Bot API
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -6,8 +6,6 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const TELEGRAM_GATEWAY = "https://connector-gateway.lovable.dev/telegram";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -30,10 +28,7 @@ serve(async (req) => {
 
     if (leadErr || !lead) throw new Error("Lead not found: " + (leadErr?.message || lead_id));
 
-    // Extract outreach text from lead.message
     const message = lead.message || "";
-
-    // Determine channel: "telegram" or "email"
     const sendChannel = channel || detectChannel(message);
 
     let result: any = {};
@@ -63,52 +58,74 @@ serve(async (req) => {
 });
 
 function detectChannel(message: string): string {
-  // If message contains telegram handle (@...) or "Telegram", use telegram
   if (/@[a-zA-Z0-9_]{3,}/.test(message) || /telegram/i.test(message)) return "telegram";
   return "email";
 }
 
-// ═══ TELEGRAM ═══
+// ═══ TELEGRAM (прямой Bot API, без gateway) ═══
 async function sendTelegram(message: string, lead: any) {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  const TELEGRAM_API_KEY = Deno.env.get("TELEGRAM_API_KEY");
+  const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
+  if (!BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN not configured");
 
-  if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
-  if (!TELEGRAM_API_KEY) throw new Error("TELEGRAM_API_KEY not configured");
+  // Твой личный chat_id для получения outreach-сообщений на согласование
+  const OWNER_CHAT_ID = Deno.env.get("TELEGRAM_OWNER_CHAT_ID");
 
-  // Extract outreach text (between --- ТЕКСТ --- and --- КОНЕЦ ---)
+  // Извлечь текст outreach
   const textMatch = message.match(/---\s*ТЕКСТ\s*---\s*([\s\S]*?)\s*---\s*КОНЕЦ\s*---/);
   const outreachText = textMatch ? textMatch[1].trim() : message;
 
-  // Find telegram handle in message
+  // Найти telegram handle
   const handleMatch = message.match(/@([a-zA-Z0-9_]{3,})/);
+  const handle = handleMatch ? `@${handleMatch[1]}` : null;
 
-  if (!handleMatch) {
-    // No handle found — send to owner's chat for manual forwarding
-    // First, get the bot's chat ID (send to self)
-    const meRes = await fetch(`${TELEGRAM_GATEWAY}/getMe`, {
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "X-Connection-Api-Key": TELEGRAM_API_KEY,
-      },
-    });
-    const meData = await meRes.json();
-
+  // Telegram Bot API не позволяет писать первым по username.
+  // Отправляем сообщение тебе (owner) с готовым текстом для пересылки.
+  if (!OWNER_CHAT_ID) {
     return {
       sent: false,
-      note: "No Telegram handle found in lead. Message prepared for manual sending.",
+      channel: "telegram",
+      handle,
       text: outreachText,
+      note: "TELEGRAM_OWNER_CHAT_ID не настроен. Добавь свой chat_id в секреты.",
     };
   }
 
-  // Try to resolve username to chat_id via getChat (works if they've interacted with bot)
-  // For cold outreach, we can't DM directly — prepare the message
+  const prefix = handle
+    ? `📨 Outreach для ${handle} (${lead.company_name || lead.name || "лид"}):\n\n`
+    : `📨 Outreach для ${lead.company_name || lead.name || "лид"} (handle не найден):\n\n`;
+
+  const fullText = prefix + outreachText;
+
+  // Отправить тебе в Telegram
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: OWNER_CHAT_ID,
+      text: fullText,
+      parse_mode: "HTML",
+    }),
+  });
+
+  const data = await res.json();
+
+  if (!data.ok) {
+    console.error("Telegram API error:", data);
+    return {
+      sent: false,
+      channel: "telegram",
+      handle,
+      text: outreachText,
+      note: `Telegram ошибка: ${data.description || "unknown"}`,
+    };
+  }
+
   return {
-    sent: false,
+    sent: true,
     channel: "telegram",
-    handle: `@${handleMatch[1]}`,
-    text: outreachText,
-    note: `Telegram: подготовлено сообщение для @${handleMatch[1]}. Telegram Bot API не позволяет писать первым — отправь вручную или через личный аккаунт.`,
+    handle,
+    message_id: data.result?.message_id,
+    note: `Отправлено тебе в Telegram. ${handle ? `Перешли ${handle}.` : "Handle не найден — отправь вручную."}`,
   };
 }
 
@@ -120,20 +137,16 @@ async function sendEmail(message: string, lead: any) {
   if (!GMAIL_ADDRESS) throw new Error("GMAIL_ADDRESS not configured");
   if (!GMAIL_APP_PASSWORD) throw new Error("GMAIL_APP_PASSWORD not configured");
 
-  // Extract email address from message or lead
   const emailMatch = message.match(/[\w.-]+@[\w.-]+\.\w{2,}/);
   const recipientEmail = emailMatch ? emailMatch[0] : null;
 
-  // Extract subject line
   const subjectMatch = message.match(/Тема:\s*(.+?)(?:\n|---)/);
   const subject = subjectMatch ? subjectMatch[1].trim() : `Предложение для ${lead.company_name || "вашей компании"}`;
 
-  // Extract outreach text
   const textMatch = message.match(/---\s*ТЕКСТ\s*---\s*([\s\S]*?)\s*---\s*КОНЕЦ\s*---/);
   const bodyText = textMatch ? textMatch[1].trim() : message;
 
   if (!recipientEmail) {
-    // Extract contact name for manual sending
     return {
       sent: false,
       channel: "email",
@@ -143,9 +156,6 @@ async function sendEmail(message: string, lead: any) {
     };
   }
 
-  // Send via SMTP using Deno's built-in SMTP
-  // Deno doesn't have built-in SMTP, use a simple HTTP-based approach via Gmail API
-  // Actually, use raw SMTP via Deno TCP
   try {
     const { SMTPClient } = await import("https://deno.land/x/denomailer@1.6.0/mod.ts");
 
