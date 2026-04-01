@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Wand2, Mic, MicOff, Send, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useVoiceInput } from '@/hooks/useVoiceInput'
 
 // Prompt refine runs on Lovable Cloud (has LOVABLE_API_KEY)
 const CLOUD_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kuodvlyepoojqimutmvu.supabase.co'
