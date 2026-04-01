@@ -284,6 +284,11 @@ serve(async (req) => {
               console.warn("Lead insert error:", leadErr.message);
             } else {
               console.log("Lead captured:", leadSummary);
+              await notifyOwner("new_lead", {
+                name: lead.name, company_name: lead.company || "",
+                role: "", topic_guess: siteId === "foundry" ? "AI-продукт" : "Консалтинг",
+                lead_summary: leadSummary,
+              });
             }
           }
         } catch (e) {
