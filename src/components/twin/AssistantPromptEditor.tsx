@@ -14,14 +14,6 @@ const PRODUCT_OPTIONS: { value: ProductContext; label: string }[] = [
   { value: 'aitransformation', label: 'AI-Трансформация' },
 ]
 
-// Maps UI product keys → site_id in assistant_prompts table
-const SITE_ID_MAP: Record<ProductContext, string> = {
-  general: 'denismateev',
-  foundry: 'foundry',
-  aisovetnik: 'aisovetnik',
-  aitransformation: 'aitransformation',
-}
-
 const SECTION_MAP: Record<ProductContext, string> = {
   general: 'denismateev.ru',
   foundry: 'agent-fo.lovableproject.com',
@@ -32,63 +24,78 @@ const SECTION_MAP: Record<ProductContext, string> = {
 export function AssistantPromptEditor() {
   const [selectedProduct, setSelectedProduct] = useState<ProductContext>('general')
   const [promptText, setPromptText] = useState('')
-  const [promptsMap, setPromptsMap] = useState<Record<string, { id: string; text: string }>>({})
+  const [systemPrompt, setSystemPrompt] = useState('')
+  const [productPrompts, setProductPrompts] = useState<Record<string, string>>({})
+  const [settingsId, setSettingsId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [showDefault, setShowDefault] = useState(false)
 
-  // Load all prompts from assistant_prompts table
   useEffect(() => {
     const load = async () => {
       const { data, error } = await supabase
-        .from('assistant_prompts')
-        .select('id, site_id, system_prompt, active')
-        .eq('active', true)
+        .from('settings')
+        .select('id, system_prompt, product_prompts')
+        .limit(1)
+        .single()
 
-      if (error) console.error('Prompts load error:', error)
-
-      const map: Record<string, { id: string; text: string }> = {}
-      if (data) {
-        data.forEach((row: any) => {
-          map[row.site_id] = { id: row.id, text: row.system_prompt || '' }
-        })
+      if (error) {
+        console.error('Settings load error:', error)
+        setLoading(false)
+        return
       }
-      setPromptsMap(map)
+
+      if (data) {
+        setSettingsId(data.id)
+        setSystemPrompt(data.system_prompt || '')
+        setProductPrompts((data.product_prompts as Record<string, string> | null) || {})
+      }
+
       setLoading(false)
     }
 
     load()
   }, [])
 
-  // When product selection changes, show the correct prompt
   useEffect(() => {
-    const siteId = SITE_ID_MAP[selectedProduct]
-    setPromptText(promptsMap[siteId]?.text || '')
+    if (selectedProduct === 'general') {
+      setPromptText(systemPrompt)
+    } else {
+      setPromptText(productPrompts[selectedProduct] || '')
+    }
     setShowDefault(false)
-  }, [selectedProduct, promptsMap])
+  }, [selectedProduct, systemPrompt, productPrompts])
 
   const persistPrompt = async (product: ProductContext, value: string) => {
-    const siteId = SITE_ID_MAP[product]
-    const existing = promptsMap[siteId]
-
-    if (existing) {
-      // Update existing row
-      const { error } = await supabase
-        .from('assistant_prompts')
-        .update({ system_prompt: value, updated_at: new Date().toISOString() })
-        .eq('id', existing.id)
-      if (error) throw error
-      setPromptsMap(prev => ({ ...prev, [siteId]: { ...existing, text: value } }))
-    } else {
-      // Insert new row
-      const { data, error } = await supabase
-        .from('assistant_prompts')
-        .insert({ site_id: siteId, system_prompt: value, active: true })
-        .select('id')
-        .single()
-      if (error) throw error
-      setPromptsMap(prev => ({ ...prev, [siteId]: { id: data.id, text: value } }))
+    if (!settingsId) {
+      throw new Error('Настройки не найдены')
     }
+
+    if (product === 'general') {
+      const { error } = await supabase
+        .from('settings')
+        .update({ system_prompt: value, updated_at: new Date().toISOString() })
+        .eq('id', settingsId)
+
+      if (error) throw error
+      setSystemPrompt(value)
+      return
+    }
+
+    const updatedPrompts = { ...productPrompts, [product]: value }
+
+    if (!value.trim()) {
+      delete updatedPrompts[product]
+    }
+
+    const { error } = await supabase
+      .from('settings')
+      .update({ product_prompts: updatedPrompts, updated_at: new Date().toISOString() })
+      .eq('id', settingsId)
+
+    if (error) throw error
+
+    setProductPrompts(updatedPrompts)
   }
 
   const handleSave = async () => {
@@ -154,9 +161,9 @@ export function AssistantPromptEditor() {
 
           {showDefault && (
             <div className="mb-2 max-h-32 overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-slate-500 font-mono whitespace-pre-wrap">
-              {`Промпт для "${PRODUCT_OPTIONS.find(o => o.value === selectedProduct)?.label}".
-Сохраняется в таблицу assistant_prompts (site_id = "${SITE_ID_MAP[selectedProduct]}").
-Чат-ассистент на сайте читает этот промпт автоматически.`}
+              {selectedProduct === 'general'
+                ? 'Общий промпт хранится в settings.system_prompt.'
+                : `Промпт для "${PRODUCT_OPTIONS.find(o => o.value === selectedProduct)?.label}" хранится в settings.product_prompts.${selectedProduct}.`}
             </div>
           )}
 

@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { MessageCircle, Send, ArrowRight } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from '@/lib/supabase'
 import ReactMarkdown from 'react-markdown'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`
 
 const SESSION_KEY = 'dwh-twin-session'
 function getSessionId() {
@@ -61,8 +60,8 @@ export function TwinAssistant() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || SUPABASE_ANON_KEY}`,
-          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${session?.access_token || SUPABASE_PUBLISHABLE_KEY}`,
+          apikey: SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({
           messages: apiMessages.length > 0 ? apiMessages : [userMsg],

@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from '@/lib/supabase'
 import { Send, RotateCcw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
+const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
@@ -55,8 +54,8 @@ export function TestChat({ promptText, sectionKey }: Props) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || SUPABASE_ANON_KEY}`,
-          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${session?.access_token || SUPABASE_PUBLISHABLE_KEY}`,
+          apikey: SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({
           messages: apiMessages.map(m => ({ role: m.role, content: m.content })),
