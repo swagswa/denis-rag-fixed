@@ -94,7 +94,7 @@ export function TwinTeams() {
       mk('ac', 'Аналитик', 'Инсайты', getMood(am, 5), am, 5, 'инс./нед.', am >= 5 ? 'Готовы!' : am > 0 ? 'Анализирую.' : 'Жду сигналы.', cI.slice(0, 3).map((i: any) => ({ label: i.title?.slice(0, 40) || 'Инсайт', date: new Date(i.created_at).toLocaleDateString('ru') })), 'analyst-consulting'),
       mk('mk', 'Маркетолог', 'Лиды', getMood(cm, 5), cm, 5, 'лидов', cm >= 5 ? 'Воронка!' : cm > 0 ? 'Outreach.' : 'Жду.', leadsD.slice(0, 3).map((l: any) => ({ label: l.company_name || l.name || 'Лид', date: new Date(l.created_at).toLocaleDateString('ru') })), 'marketer-consulting'),
       mk('sl', 'Продавец', 'Сделки', getMood(clm, 2), clm, 2, 'сделок', clm > 0 ? 'Есть клиенты!' : 'Жду лидов.', [], 'seller-consulting'),
-      mk('dr-c', 'Директор', 'Управление', getMood(cm + clm, 3), cFeedbacks, 5, 'коррекций', cm + clm > 0 ? 'Контролирую воронку.' : 'Анализирую узкие места.', [], 'director-consulting'),
+      mk('dr-c', 'Директор', 'Управление', getMood(clm, 2), clm, 2, 'сделок', clm > 0 ? 'Контролирую воронку.' : 'Анализирую узкие места.', [], 'director-consulting'),
     ]
 
     const fsm = rs.filter((s: any) => s.potential === 'foundry').length
