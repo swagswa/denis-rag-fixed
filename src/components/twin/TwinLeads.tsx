@@ -105,14 +105,25 @@ export function TwinLeads({ sellerMode }: { sellerMode?: boolean }) {
               <div className="flex shrink-0 items-center gap-1.5">
                 {l.status === 'pending_approval' && !sellerMode && (
                   <>
-                    <button onClick={() => handleApprove(l.id)} className="rounded-md p-1.5 hover:bg-slate-700"><Check className="h-4 w-4 text-blue-400" /></button>
-                    <button onClick={() => handleReject(l.id)} className="rounded-md p-1.5 hover:bg-red-500/10"><XIcon className="h-4 w-4 text-red-400" /></button>
+                    <button onClick={() => handleApproveAndSend(l.id, 'email')} disabled={sendingId === l.id} className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50" title="Одобрить и отправить Email">
+                      {sendingId === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}Email
+                    </button>
+                    <button onClick={() => handleApproveAndSend(l.id, 'telegram')} disabled={sendingId === l.id} className="flex items-center gap-1 rounded-lg bg-blue-500 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50" title="Одобрить и отправить Telegram">
+                      {sendingId === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}TG
+                    </button>
+                    <button onClick={() => handleApprove(l.id)} className="rounded-md p-1.5 hover:bg-slate-700" title="Только одобрить"><Check className="h-4 w-4 text-blue-400" /></button>
+                    <button onClick={() => handleReject(l.id)} className="rounded-md p-1.5 hover:bg-red-500/10" title="Отклонить"><XIcon className="h-4 w-4 text-red-400" /></button>
                   </>
                 )}
                 {(l.status === 'approved') && (
-                  <button onClick={() => handleSendOutreach(l.id)} disabled={sendingId === l.id} className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
-                    {sendingId === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}Отправить
-                  </button>
+                  <>
+                    <button onClick={() => handleSendOutreach(l.id, 'email')} disabled={sendingId === l.id} className="flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                      {sendingId === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}Email
+                    </button>
+                    <button onClick={() => handleSendOutreach(l.id, 'telegram')} disabled={sendingId === l.id} className="flex items-center gap-1 rounded-lg bg-blue-500 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                      {sendingId === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}TG
+                    </button>
+                  </>
                 )}
               </div>
             </div>
