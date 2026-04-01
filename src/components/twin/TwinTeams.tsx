@@ -151,7 +151,7 @@ function AgentCard({ agent, onMandateUpdate }: { agent: AgentData; onMandateUpda
 
   const toggleVoice = () => {
     if (recording) {
-      recognitionRef[0]?.stop()
+      recognitionRef.current?.stop()
       setRecording(false)
       return
     }
