@@ -385,11 +385,6 @@ serve(async (req) => {
               console.warn("Conversation insert error:", convErr.message);
             } else {
               console.log("Conversation saved, session:", sessionId.slice(0, 8));
-              await notifyOwner("new_conversation", {
-                site_id: pageUrl || "unknown",
-                visitor_id: sessionId?.slice(0, 8),
-                first_message: lastUserMessage?.slice(0, 200),
-              });
             }
           } catch (e) {
             console.warn("Conversation save error (non-fatal):", e);
