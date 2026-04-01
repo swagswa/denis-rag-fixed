@@ -8,9 +8,9 @@ const corsHeaders = {
 
 async function notifyOwner(eventType: string, data: any) {
   try {
-    const url = Deno.env.get("SUPABASE_URL");
-    const key = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!url || !key) return;
+    // Use original Supabase for notifications (not Lovable Cloud)
+    const url = "https://kuodvlyepoojqimutmvu.supabase.co";
+    const key = "sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS";
     await fetch(`${url}/functions/v1/notify-owner`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
