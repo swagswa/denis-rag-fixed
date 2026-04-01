@@ -3,9 +3,8 @@ import { X, Send, Loader2, Mic, MicOff, ChevronDown, ChevronUp } from 'lucide-re
 import { supabase } from '@/lib/supabase'
 import { useVoiceInput } from '@/hooks/useVoiceInput'
 
-const CLOUD_URL = import.meta.env.VITE_SUPABASE_URL || ''
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
-const CHAT_URL = `${CLOUD_URL}/functions/v1/chat`
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
 type Message = { role: 'user' | 'assistant'; content: string }
 

@@ -5,10 +5,8 @@ import ReactMarkdown from 'react-markdown'
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
-// Chat runs on Lovable Cloud (has LOVABLE_API_KEY)
-const CLOUD_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kuodvlyepoojqimutmvu.supabase.co'
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_n-B1HcuRd0kDc0spwr-oHg_KI-i0itS'
-const CHAT_URL = `${CLOUD_URL}/functions/v1/chat`
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
 const SESSION_KEY = 'dwh-twin-session'
 function getSessionId() {
