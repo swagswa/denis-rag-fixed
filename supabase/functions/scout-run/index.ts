@@ -101,6 +101,25 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // ═══ PHASE -1: Загрузить мандат из factory_flows ═══
+    let reqFactory = "consulting";
+    try {
+      const reqBody = await req.clone().json();
+      reqFactory = reqBody?.factory || "consulting";
+    } catch { /* no body */ }
+
+    const { data: flows } = await supabase
+      .from("factory_flows")
+      .select("target_company_size, target_region, target_industry, target_notes")
+      .eq("factory", reqFactory)
+      .eq("status", "active")
+      .limit(5);
+
+    const mandateSize = flows?.[0]?.target_company_size || "5-500";
+    const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
+    const mandateIndustry = flows?.[0]?.target_industry || "";
+    const mandateNotes = flows?.[0]?.target_notes || "";
+
     // ═══ PHASE 0: Загрузить feedback от предыдущих циклов ═══
     const { data: recentFeedback } = await supabase
       .from("agent_feedback")
@@ -195,10 +214,12 @@ ${isUrgent ? "- Увеличь количество сигналов до МАК
       : "(Firecrawl не подключен — используй свои знания о текущих трендах РФ/СНГ, но ПОМЕЧАЙ сигналы как 'ai_generated')";
 
     const prompt = `Ты — скаут, ищущий сигналы для двух направлений:
-1) CONSULTING — компании РФ/СНГ (5-500 сотрудников, НЕ крупные корпорации!) с конкретными болями (нужна автоматизация/AI)
-2) FOUNDRY — идеи AI-продуктов для рынка РФ/СНГ (мировые тренды + российский спрос)
+1) CONSULTING — компании ${mandateRegion} (${mandateSize} сотрудников, НЕ крупные корпорации!) с конкретными болями (нужна автоматизация/AI)
+2) FOUNDRY — идеи AI-продуктов для рынка ${mandateRegion} (мировые тренды + российский спрос)
 
-МАНДАТ: целевые компании 5-500 человек. Крупные корпорации (1С, Яндекс, Сбер, МТС, Mail.ru, Ростелеком) — ПРОПУСКАЙ.
+МАНДАТ: целевые компании ${mandateSize} человек. Крупные корпорации (1С, Яндекс, Сбер, МТС, Mail.ru, Ростелеком) — ПРОПУСКАЙ.
+${mandateIndustry ? `Целевые отрасли: ${mandateIndustry}.` : ""}
+${mandateNotes ? `Доп. указания: ${mandateNotes}` : ""}
 
 ${knowledgeBase ? `═══ БАЗА ЗНАНИЙ — НАШИ СУЩЕСТВУЮЩИЕ ИНСАЙТЫ (используй для контекста!) ═══
 Эти инсайты уже созданы аналитиком. НЕ дублируй их!
@@ -238,7 +259,7 @@ ${selfOptimizationPrompt}
 - Каждый сигнал должен иметь source — откуда ты его взял
 - Если Firecrawl не подключен — используй свои знания, но помечай source как "ai_generated"
 - Максимум 15 сигналов (8 consulting + 7 foundry)
-- Geography: ТОЛЬКО РФ/СНГ (для consulting) или адаптация в РФ (для foundry)
+- Geography: ТОЛЬКО ${mandateRegion} (для consulting) или адаптация в ${mandateRegion} (для foundry)
 - CONSULTING: company_name — бонус, но НЕ обязателен. Главное — конкретный тренд/событие с деталями
 - НЕ ДУБЛИРУЙ темы из БАЗЫ ЗНАНИЙ! Ищи НОВЫЕ сигналы.
 - 🚫 FOUNDRY: НЕ генерируй похожие идеи! Каждый foundry-сигнал должен быть про РАЗНУЮ отрасль/нишу

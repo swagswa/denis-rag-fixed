@@ -48,6 +48,19 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // ═══ PHASE -1: Загрузить мандат из factory_flows ═══
+    const { data: flows } = await supabase
+      .from("factory_flows")
+      .select("target_company_size, target_region, target_industry, target_notes")
+      .eq("factory", factory)
+      .eq("status", "active")
+      .limit(5);
+
+    const mandateSize = flows?.[0]?.target_company_size || "5-500";
+    const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
+    const mandateIndustry = flows?.[0]?.target_industry || "";
+    const mandateNotes = flows?.[0]?.target_notes || "";
+
     // ═══ PHASE 0: Self-regulation — delete returned insights, reset their signals ═══
     const { data: returnedInsights } = await supabase
       .from("insights")
@@ -235,8 +248,10 @@ ${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала
     const prompt = `Ты — senior бизнес-аналитик и стратег. Рынок: Россия и СНГ. На входе рыночные сигналы.
 
 МАНДАТ (ЖЁСТКИЙ — нарушение = автоматический отказ):
-- Размер целевых компаний: 5-500 сотрудников. Крупные корпорации (1С, Яндекс, Сбер, МТС и т.п.) — НЕ наши клиенты.
-- Регион: РФ/СНГ
+- Размер целевых компаний: ${mandateSize} сотрудников. Крупные корпорации (1С, Яндекс, Сбер, МТС и т.п.) — НЕ наши клиенты.
+- Регион: ${mandateRegion}
+${mandateIndustry ? `- Целевые отрасли: ${mandateIndustry}` : ""}
+${mandateNotes ? `- Доп. указания: ${mandateNotes}` : ""}
 
 ВАЖНО — КОНВЕРСИЯ:
 - Создавай инсайт из КАЖДОГО сигнала, если он хоть МИНИМАЛЬНО релевантен нашему мандату.
