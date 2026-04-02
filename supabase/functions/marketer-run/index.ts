@@ -129,7 +129,7 @@ serve(async (req) => {
 
     if (insErr) throw insErr;
     if (!allInsights || allInsights.length === 0) {
-      return new Response(JSON.stringify({ success: true, message: "No new consulting insights to process" }), {
+      return new Response(JSON.stringify({ success: true, insights_processed: 0, leads_created: 0, returned_to_analyst: 0, kpi_updated: false, message: "No new consulting insights to process" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -148,7 +148,7 @@ serve(async (req) => {
     );
     const queue = allInsights.filter((i: any) => !done.has(`insight:${i.id}`)).slice(0, 5);
     if (queue.length === 0) {
-      return new Response(JSON.stringify({ success: true, message: "All insights already processed" }), {
+      return new Response(JSON.stringify({ success: true, insights_processed: 0, leads_created: 0, returned_to_analyst: 0, kpi_updated: false, message: "All insights already processed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -274,7 +274,7 @@ ${brief}`;
     const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: prompt }], temperature: 0.3 }),
+      body: JSON.stringify({ model: "gpt-5.2", messages: [{ role: "user", content: prompt }], temperature: 0.3 }),
     });
 
     if (!aiRes.ok) {

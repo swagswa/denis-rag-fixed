@@ -265,7 +265,7 @@ ${selfOptimizationPrompt}
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "gpt-5.2",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.4,
       }),

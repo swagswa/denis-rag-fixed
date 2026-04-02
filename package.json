@@ -10,7 +10,13 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "vitest run --reporter=verbose src/test/e2e/",
+    "test:e2e:phase0": "vitest run --reporter=verbose src/test/e2e/phase0-infrastructure.test.ts",
+    "test:e2e:phase1": "vitest run --reporter=verbose src/test/e2e/phase1-isolated.test.ts",
+    "test:e2e:phase2": "vitest run --reporter=verbose src/test/e2e/phase2-chain.test.ts",
+    "test:e2e:phase3": "vitest run --reporter=verbose src/test/e2e/phase3-quality.test.ts",
+    "test:e2e:phase4": "vitest run --reporter=verbose src/test/e2e/phase4-edge-cases.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

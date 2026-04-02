@@ -22,6 +22,11 @@ serve(async (req) => {
       throw new Error(`Missing env: SUPABASE_URL=${!!SUPABASE_URL}, SUPABASE_SERVICE_ROLE_KEY=${!!SERVICE_KEY}`);
     }
 
+    // CHAIN_AUTH_KEY is a dedicated secret with the correct anon JWT for inter-function calls.
+    // SUPABASE_SERVICE_ROLE_KEY and SUPABASE_ANON_KEY may be corrupted in project secrets.
+    const authKey = Deno.env.get("CHAIN_AUTH_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || SERVICE_KEY;
+    console.log(`[chain-runner] Using auth key starting with: ${authKey?.slice(0, 10)}...`);
+
     const chain = factory === "foundry"
       ? ["scout-run", "analyst-run", "foundry-qualify", "builder-run"]
       : ["scout-run", "analyst-run", "marketer-run"];
@@ -63,28 +68,44 @@ serve(async (req) => {
       }
 
       try {
-        const res = await fetch(`${SUPABASE_URL}/functions/v1/${fn}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SERVICE_KEY}`,
-          },
-          body: JSON.stringify({ triggered_by, factory }),
-        });
-
-        const rawText = await res.text();
+        let res: Response | null = null;
+        let rawText = "";
         let data: any = {};
-        try {
-          data = rawText ? JSON.parse(rawText) : {};
-        } catch {
-          data = { raw: rawText.slice(0, 1000) };
+        const MAX_RETRIES = 2;
+
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          res = await fetch(`${SUPABASE_URL}/functions/v1/${fn}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authKey}`,
+              apikey: authKey,
+            },
+            body: JSON.stringify({ triggered_by, factory }),
+          });
+
+          rawText = await res.text();
+          try {
+            data = rawText ? JSON.parse(rawText) : {};
+          } catch {
+            data = { raw: rawText.slice(0, 1000) };
+          }
+
+          if (res.ok || (res.status !== 401 && res.status !== 429)) {
+            break; // success or non-retryable error
+          }
+
+          if (attempt < MAX_RETRIES) {
+            console.warn(`[${factory}] ${fn} returned ${res.status}, retrying (${attempt + 1}/${MAX_RETRIES})...`);
+            await new Promise((r) => setTimeout(r, 3000));
+          }
         }
 
-        results.push({ fn, status: res.status, data });
-        console.log(`[${factory}] ${fn}: ${res.status}`, rawText.slice(0, 300));
+        results.push({ fn, status: res!.status, data });
+        console.log(`[${factory}] ${fn}: ${res!.status}`, rawText.slice(0, 300));
 
-        if (!res.ok) {
-          console.error(`[${factory}] ${fn} failed with ${res.status}, stopping chain`);
+        if (!res!.ok) {
+          console.error(`[${factory}] ${fn} failed with ${res!.status}, stopping chain`);
           break;
         }
 

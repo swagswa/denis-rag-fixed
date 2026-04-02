@@ -57,40 +57,109 @@ serve(async (req) => {
 
     let recycled = 0;
     if (returnedInsights && returnedInsights.length > 0) {
-      for (const ri of returnedInsights) {
-        if (ri.signal_id) {
-          await supabase
+      const signalIdsToReset = returnedInsights
+        .map((ri) => ri.signal_id)
+        .filter(Boolean) as string[];
+      const insightIdsToDelete = returnedInsights.map((ri) => ri.id);
+
+      const batchOps: Promise<any>[] = [];
+
+      if (signalIdsToReset.length > 0) {
+        batchOps.push(
+          supabase
             .from("signals")
             .update({
               status: "new",
-              notes: `[Повторный анализ] ${compactText(ri.notes, 300)}`,
+              notes: `[Повторный анализ] ${compactText(returnedInsights[0]?.notes, 300)}`,
               updated_at: new Date().toISOString(),
             })
-            .eq("id", ri.signal_id);
-        }
-        await supabase.from("insights").delete().eq("id", ri.id);
-        recycled++;
+            .in("id", signalIdsToReset)
+        );
       }
+
+      if (insightIdsToDelete.length > 0) {
+        batchOps.push(
+          supabase.from("insights").delete().in("id", insightIdsToDelete)
+        );
+      }
+
+      await Promise.all(batchOps);
+      recycled = returnedInsights.length;
     }
 
-    // ═══ PHASE 0.5: Load feedback from downstream agents ═══
-    const { data: recentFeedback } = await supabase
-      .from("agent_feedback")
-      .select("factory, feedback_type, content")
-      .eq("to_agent", "analyst")
-      .eq("resolved", false)
+    // ═══ PHASE 0.5–1.5: Load all independent data in parallel ═══
+    const isFoundry = factory === "foundry";
+    const batchLimit = isFoundry ? 15 : 30;
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Build signals query
+    let signalsQuery = supabase
+      .from("signals")
+      .select("id, company_name, description, signal_type, industry, source, potential, notes")
+      .eq("status", "new")
       .order("created_at", { ascending: false })
-      .limit(10);
+      .limit(batchLimit);
+
+    if (isFoundry) {
+      signalsQuery = signalsQuery.in("potential", ["foundry", "innovation_pilot"]);
+    } else {
+      signalsQuery = signalsQuery.or("potential.eq.consulting,potential.is.null");
+    }
+
+    // Build historical signals query
+    let histQuery = supabase
+      .from("signals")
+      .select("company_name, description, signal_type, industry, source, potential, created_at")
+      .eq("status", "analyzed")
+      .gte("created_at", sevenDaysAgo)
+      .order("created_at", { ascending: false })
+      .limit(40);
+
+    if (isFoundry) {
+      histQuery = histQuery.in("potential", ["foundry", "innovation_pilot"]);
+    } else {
+      histQuery = histQuery.or("potential.eq.consulting,potential.is.null");
+    }
+
+    // Fire all independent queries in parallel
+    const [
+      { data: recentFeedback },
+      { data: kpiGoals },
+      { data: pastInsights },
+      { data: pastLeads },
+      { data: signals, error: signalsError },
+      { data: historicalSignals },
+    ] = await Promise.all([
+      supabase
+        .from("agent_feedback")
+        .select("factory, feedback_type, content")
+        .eq("to_agent", "analyst")
+        .eq("resolved", false)
+        .order("created_at", { ascending: false })
+        .limit(10),
+      supabase
+        .from("agent_kpi")
+        .select("id, factory, metric, target, current")
+        .eq("active", true),
+      supabase
+        .from("insights")
+        .select("title, company_name, problem, action_proposal, opportunity_type, status")
+        .order("created_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("leads")
+        .select("company_name, lead_summary, status")
+        .order("created_at", { ascending: false })
+        .limit(20),
+      signalsQuery,
+      histQuery,
+    ]);
+
+    if (signalsError) throw signalsError;
 
     const feedbackContext = (recentFeedback || [])
       .map((f: any) => `[${f.factory}/${f.feedback_type}]: ${f.content}`)
       .join("\n");
-
-    // Load KPI targets + SELF-OPTIMIZATION
-    const { data: kpiGoals } = await supabase
-      .from("agent_kpi")
-      .select("id, factory, metric, target, current")
-      .eq("active", true);
 
     const kpiContext = (kpiGoals || [])
       .map((k: any) => `[${k.factory}] ${k.metric}: ${k.current}/${k.target}`)
@@ -115,19 +184,6 @@ ${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала
 `;
     }
 
-    // ═══ PHASE 0.8: БАЗА ЗНАНИЙ — загрузить существующие инсайты и лиды для контекста ═══
-    const { data: pastInsights } = await supabase
-      .from("insights")
-      .select("title, company_name, problem, action_proposal, opportunity_type, status")
-      .order("created_at", { ascending: false })
-      .limit(40);
-
-    const { data: pastLeads } = await supabase
-      .from("leads")
-      .select("company_name, lead_summary, status")
-      .order("created_at", { ascending: false })
-      .limit(20);
-
     const knowledgeInsights = (pastInsights || []).length > 0
       ? (pastInsights || [])
           .map((ins: any, i: number) => `[I${i + 1}|${ins.status}] ${ins.opportunity_type} | ${ins.title} | ${(ins.problem || "").slice(0, 80)}`)
@@ -139,45 +195,6 @@ ${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала
           .map((l: any, i: number) => `[L${i + 1}|${l.status}] ${l.company_name || "?"} | ${(l.lead_summary || "").slice(0, 100)}`)
           .join("\n")
       : "";
-
-    // ═══ PHASE 1: Process NEW signals (including recycled ones) ═══
-    // Filter signals by factory to prevent cross-contamination
-    const isFoundry = factory === "foundry";
-    let signalsQuery = supabase
-      .from("signals")
-      .select("id, company_name, description, signal_type, industry, source, potential, notes")
-      .eq("status", "new")
-      .order("created_at", { ascending: false })
-      .limit(30);
-
-    if (isFoundry) {
-      signalsQuery = signalsQuery.in("potential", ["foundry", "innovation_pilot"]);
-    } else {
-      signalsQuery = signalsQuery.or("potential.eq.consulting,potential.is.null");
-    }
-
-    const { data: signals, error: signalsError } = await signalsQuery;
-
-    if (signalsError) throw signalsError;
-
-    // ═══ PHASE 1.5: Load HISTORICAL signals as context for cross-matching ═══
-    // Old signals can become relevant when new events/triggers appear
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    let histQuery = supabase
-      .from("signals")
-      .select("company_name, description, signal_type, industry, source, potential, created_at")
-      .eq("status", "analyzed")
-      .gte("created_at", sevenDaysAgo)
-      .order("created_at", { ascending: false })
-      .limit(40);
-
-    if (isFoundry) {
-      histQuery = histQuery.in("potential", ["foundry", "innovation_pilot"]);
-    } else {
-      histQuery = histQuery.or("potential.eq.consulting,potential.is.null");
-    }
-
-    const { data: historicalSignals } = await histQuery;
 
     const historicalContext = (historicalSignals || []).length > 0
       ? (historicalSignals || [])
@@ -388,7 +405,7 @@ ${brief}`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "gpt-5.2",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
       }),
