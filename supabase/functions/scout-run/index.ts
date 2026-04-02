@@ -120,6 +120,17 @@ serve(async (req) => {
     const mandateIndustry = flows?.[0]?.target_industry || "";
     const mandateNotes = flows?.[0]?.target_notes || "";
 
+    // Load custom mandate from documents table (if user edited it via UI)
+    const mandateKey = `scout-${reqFactory}`;
+    const { data: customMandate } = await supabase
+      .from("documents")
+      .select("content")
+      .eq("source_type", "agent_mandate")
+      .eq("source_name", mandateKey)
+      .limit(1);
+
+    const customMandateText = customMandate?.[0]?.content || "";
+
     // ═══ PHASE 0: Загрузить feedback от предыдущих циклов ═══
     const { data: recentFeedback } = await supabase
       .from("agent_feedback")
@@ -220,7 +231,7 @@ ${isUrgent ? "- Увеличь количество сигналов до МАК
 МАНДАТ: целевые компании ${mandateSize} человек. Крупные корпорации (1С, Яндекс, Сбер, МТС, Mail.ru, Ростелеком) — ПРОПУСКАЙ.
 ${mandateIndustry ? `Целевые отрасли: ${mandateIndustry}.` : ""}
 ${mandateNotes ? `Доп. указания: ${mandateNotes}` : ""}
-
+${customMandateText ? `\n═══ ПОЛЬЗОВАТЕЛЬСКИЙ МАНДАТ ═══\n${customMandateText}\n═══ КОНЕЦ МАНДАТА ═══\n` : ""}
 ${knowledgeBase ? `═══ БАЗА ЗНАНИЙ — НАШИ СУЩЕСТВУЮЩИЕ ИНСАЙТЫ (используй для контекста!) ═══
 Эти инсайты уже созданы аналитиком. НЕ дублируй их!
 Но ИСПОЛЬЗУЙ как контекст: ищи НОВЫЕ сигналы, которые УСИЛИВАЮТ или ДОПОЛНЯЮТ эти темы.

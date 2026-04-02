@@ -61,6 +61,17 @@ serve(async (req) => {
     const mandateIndustry = flows?.[0]?.target_industry || "";
     const mandateNotes = flows?.[0]?.target_notes || "";
 
+    // Load custom mandate from documents table (if user edited it via UI)
+    const mandateKey = `analyst-${factory}`;
+    const { data: customMandate } = await supabase
+      .from("documents")
+      .select("content")
+      .eq("source_type", "agent_mandate")
+      .eq("source_name", mandateKey)
+      .limit(1);
+
+    const customMandateText = customMandate?.[0]?.content || "";
+
     // ═══ PHASE 0: Self-regulation — delete returned insights, reset their signals ═══
     const { data: returnedInsights } = await supabase
       .from("insights")
@@ -252,7 +263,7 @@ ${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала
 - Регион: ${mandateRegion}
 ${mandateIndustry ? `- Целевые отрасли: ${mandateIndustry}` : ""}
 ${mandateNotes ? `- Доп. указания: ${mandateNotes}` : ""}
-
+${customMandateText ? `\n═══ ПОЛЬЗОВАТЕЛЬСКИЙ МАНДАТ ═══\n${customMandateText}\n═══ КОНЕЦ МАНДАТА ═══\n` : ""}
 ВАЖНО — КОНВЕРСИЯ:
 - Создавай инсайт из КАЖДОГО сигнала, если он хоть МИНИМАЛЬНО релевантен нашему мандату.
 - МИНИМУМ 60% сигналов должны стать инсайтами. Если сомневаешься — СОЗДАЙ инсайт. Маркетолог отфильтрует слабые.

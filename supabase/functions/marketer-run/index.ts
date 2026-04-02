@@ -96,6 +96,16 @@ serve(async (req) => {
     const mandateSize = flows?.[0]?.target_company_size || "5-500";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
+    // Load custom mandate from documents table (if user edited it via UI)
+    const { data: customMandate } = await supabase
+      .from("documents")
+      .select("content")
+      .eq("source_type", "agent_mandate")
+      .eq("source_name", "marketer-consulting")
+      .limit(1);
+
+    const customMandateText = customMandate?.[0]?.content || "";
+
     // ═══ SELF-OPTIMIZATION: KPI check ═══
     const { data: kpiGoals } = await supabase
       .from("agent_kpi")
@@ -220,7 +230,7 @@ ${pairedResults[idx].websiteContent.slice(0, 1500)}
 МАНДАТ:
 - Размер компании: ${mandateSize} сотрудников. НЕ крупнее! 1С, Яндекс, Сбер — НЕ наши.
 - Регион: ${mandateRegion}
-
+${customMandateText ? `\n═══ ПОЛЬЗОВАТЕЛЬСКИЙ МАНДАТ ═══\n${customMandateText}\n═══ КОНЕЦ МАНДАТА ═══\n` : ""}
 🚨 ЗАПРЕТ НА ВЫДУМЫВАНИЕ:
 - Используй ТОЛЬКО данные из "НАЙДЕННЫЕ КОМПАНИИ", "НАЙДЕННЫЕ КОНТАКТЫ" и "КОНТЕНТ САЙТА"
 - ❌ ЗАПРЕЩЕНО выдумывать имена, email, telegram, linkedin

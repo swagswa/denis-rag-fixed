@@ -59,6 +59,16 @@ serve(async (req) => {
     const mandateIndustry = flows?.map((f: any) => f.target_industry).filter(Boolean).join(", ") || "e-com, маркетплейсы, AI-сервисы";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
+    // Load custom mandate from documents table (if user edited it via UI)
+    const { data: customMandate } = await supabase
+      .from("documents")
+      .select("content")
+      .eq("source_type", "agent_mandate")
+      .eq("source_name", "builder-foundry")
+      .limit(1);
+
+    const customMandateText = customMandate?.[0]?.content || "";
+
     const { data: kpiGoals } = await supabase
       .from("agent_kpi")
       .select("id, factory, metric, target, current")
@@ -182,6 +192,7 @@ action_proposal: ${i.action_proposal || "(не указано)"}`)
 МАНДАТ:
 - Отрасль: ${mandateIndustry}. Идеи ВНЕ — отказ.
 - Регион: ${mandateRegion}
+${customMandateText ? `\n═══ ПОЛЬЗОВАТЕЛЬСКИЙ МАНДАТ ═══\n${customMandateText}\n═══ КОНЕЦ МАНДАТА ═══\n` : ""}
 - 🚫 ЗАПРЕЩЕНЫ: prompt platforms, generic AI, ChatGPT wrappers
 ${existingIdeasBrief}
 
