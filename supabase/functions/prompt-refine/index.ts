@@ -5,14 +5,46 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const SYSTEM_PROMPT = `Ты — эксперт по редактированию системных промтов для AI-ассистентов. Ты общаешься с пользователем в режиме диалога.
+
+КОНТЕКСТ: Пользователь дал тебе текущий промт ассистента. Твоя задача — помочь его улучшить через обсуждение.
+
+КАК РАБОТАТЬ:
+1. Когда пользователь просит что-то изменить — предложи конкретные изменения, объясни что и почему меняешь
+2. Покажи ИЗМЕНЁННЫЕ ЧАСТИ промта (не весь целиком, если изменение небольшое)
+3. Спроси "Применить эти изменения?" или предложи альтернативы
+4. Если пользователь подтвердил (да, ок, применяй, давай) — верни ПОЛНЫЙ обновлённый промт целиком, обёрнутый в тег <PROMPT_RESULT>полный промт тут</PROMPT_RESULT>
+5. Если пользователь просит ещё что-то поменять — продолжай обсуждение
+
+ПРАВИЛА:
+- Отвечай по-русски, кратко и по делу
+- Тег <PROMPT_RESULT> используй ТОЛЬКО когда пользователь подтвердил изменения
+- Внутри тега должен быть ПОЛНЫЙ промт (не diff, не фрагмент)
+- Без маркдаун-обёрток (\`\`\`) внутри тега`;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { instruction, currentPrompt } = await req.json();
+    const body = await req.json();
+    const { currentPrompt, messages } = body;
 
-    if (!instruction || !currentPrompt) {
-      return new Response(JSON.stringify({ error: "instruction and currentPrompt are required" }), {
+    // Support both old format (instruction) and new format (messages)
+    let chatMessages: Array<{ role: string; content: string }>;
+
+    if (messages && Array.isArray(messages)) {
+      chatMessages = [
+        { role: "system", content: SYSTEM_PROMPT + `\n\nТЕКУЩИЙ ПРОМТ АССИСТЕНТА:\n---\n${currentPrompt}\n---` },
+        ...messages,
+      ];
+    } else if (body.instruction) {
+      // Backwards compat: single instruction → single exchange
+      chatMessages = [
+        { role: "system", content: SYSTEM_PROMPT + `\n\nТЕКУЩИЙ ПРОМТ АССИСТЕНТА:\n---\n${currentPrompt}\n---` },
+        { role: "user", content: body.instruction },
+      ];
+    } else {
+      return new Response(JSON.stringify({ error: "messages or instruction required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -34,24 +66,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `Ты — редактор системных промтов для AI-ассистентов. Тебе дан текущий промт и инструкция пользователя по его изменению.
-
-ПРАВИЛА:
-1. Внеси ТОЛЬКО те изменения, которые просит пользователь
-2. Сохрани ВСЮ остальную структуру, форматирование и содержание промта без изменений
-3. Верни ПОЛНЫЙ обновлённый промт целиком
-4. НЕ добавляй комментарии, объяснения, маркдаун-обёртки (без \`\`\`)
-5. НЕ добавляй ничего от себя кроме запрошенных изменений
-6. Ответ = ТОЛЬКО текст обновлённого промта`
-          },
-          {
-            role: "user",
-            content: `ТЕКУЩИЙ ПРОМТ:\n---\n${currentPrompt}\n---\n\nИНСТРУКЦИЯ: ${instruction}`
-          }
-        ],
+        messages: chatMessages,
       }),
     });
 
@@ -71,9 +86,16 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    const result = data.choices?.[0]?.message?.content || "";
+    const reply = data.choices?.[0]?.message?.content || "";
 
-    return new Response(JSON.stringify({ result }), {
+    // Extract prompt if AI wrapped it in <PROMPT_RESULT> tag
+    const promptMatch = reply.match(/<PROMPT_RESULT>([\s\S]*?)<\/PROMPT_RESULT>/);
+    const extractedPrompt = promptMatch ? promptMatch[1].trim() : null;
+
+    return new Response(JSON.stringify({
+      reply,
+      prompt: extractedPrompt,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
