@@ -3,7 +3,7 @@ import { Wand2, Mic, MicOff, Send, Loader2 } from 'lucide-react'
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from '@/lib/supabase'
 import { useVoiceInput } from '@/hooks/useVoiceInput'
 
-const CHAT_URL = `${SUPABASE_URL}/functions/v1/chat`
+const REFINE_URL = `${SUPABASE_URL}/functions/v1/prompt-refine`
 
 const PROMPT_REFINER_SYSTEM_PROMPT = `You are a PROMPT EDITING MACHINE. Not a chatbot. Not an assistant.
 
@@ -77,7 +77,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
         throw new Error('Сессия истекла. Обновите страницу и войдите снова.')
       }
 
-      const resp = await fetch(CHAT_URL, {
+      const resp = await fetch(REFINE_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -85,17 +85,8 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
           ...(SUPABASE_PUBLISHABLE_KEY ? { apikey: SUPABASE_PUBLISHABLE_KEY } : {}),
         },
         body: JSON.stringify({
-          messages: [{
-            role: 'user',
-            content: `ТЕКУЩИЙ ПРОМПТ:\n---\n${currentPrompt}\n---\n\nИНСТРУКЦИЯ:\n${instruction}`,
-          }],
-          sessionId: `prompt-refine-${Date.now()}`,
-          pageContext: { url: window.location.href, title: 'Prompt Refine', section: 'assistant-prompt-refine' },
-          system_prompt_override: PROMPT_REFINER_SYSTEM_PROMPT,
-          model: 'openai/gpt-5.2',
-          model_override: 'openai/gpt-5.2',
-          force_model: 'openai/gpt-5.2',
-          isTest: true,
+          instruction,
+          currentPrompt,
         }),
       })
 

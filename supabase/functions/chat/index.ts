@@ -108,8 +108,23 @@ async function resolveSystemPrompt(supabase: ReturnType<typeof createClient>, si
   if (override?.trim()) return override.trim();
   let base = DEFAULT_SYSTEM_PROMPT;
   try {
-    const { data } = await supabase.from("assistant_prompts").select("system_prompt").eq("site_id", siteId).eq("active", true).limit(1);
-    if (data?.[0]?.system_prompt?.trim()) base = data[0].system_prompt.trim();
+    // Read from settings table (same place the web editor saves to)
+    const { data } = await supabase.from("settings").select("system_prompt, product_prompts").limit(1).single();
+    if (data) {
+      if (siteId === "denismateev" || siteId === "general") {
+        // General prompt
+        if (data.system_prompt?.trim()) base = data.system_prompt.trim();
+      } else {
+        // Product-specific prompt (foundry, aisovetnik, aitransformation)
+        const pp = data.product_prompts as Record<string, string> | null;
+        if (pp?.[siteId]?.trim()) {
+          base = pp[siteId].trim();
+        } else if (data.system_prompt?.trim()) {
+          // Fallback to general prompt if no product-specific one
+          base = data.system_prompt.trim();
+        }
+      }
+    }
   } catch (e) { console.warn("Prompt fallback:", e); }
   const userMsgs = msgs.filter((m) => m.role === "user");
   if (userMsgs.length <= 1 && !detectContactInfo(msgs)) base += QUIZ_TRIGGER;

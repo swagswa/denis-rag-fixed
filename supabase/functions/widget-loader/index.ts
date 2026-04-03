@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 const WIDGET_JS = `(function(){
   'use strict';
 
-  var CHAT_ORIGIN = 'https://huggable-deploy-buddy.lovable.app';
+  var CHAT_ORIGIN = 'https://warm-whisper-board.lovable.app';
 
   if (window.__dmChatWidgetLoaded) return;
   window.__dmChatWidgetLoaded = true;
