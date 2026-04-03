@@ -32,20 +32,19 @@ export function useVoiceInput(onTranscript: (text: string) => void) {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     const recognition = new SR()
     recognition.lang = 'ru-RU'
-    recognition.continuous = true
-    recognition.interimResults = true
+    recognition.continuous = false
+    recognition.interimResults = false
     recognitionRef.current = recognition
     usingWebSpeech.current = true
 
-    let finalTranscript = ''
     recognition.onresult = (e: any) => {
-      let interim = ''
+      let transcript = ''
       for (let i = 0; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) finalTranscript += t + ' '
-        else interim = t
+        if (e.results[i].isFinal) {
+          transcript += e.results[i][0].transcript
+        }
       }
-      onTranscript(finalTranscript + interim)
+      if (transcript.trim()) onTranscript(transcript.trim())
     }
     recognition.onerror = () => setState('idle')
     recognition.onend = () => setState('idle')

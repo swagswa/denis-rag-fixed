@@ -64,7 +64,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const voice = useVoiceInput(useCallback((text: string) => {
-    setInput(prev => prev ? prev + ' ' + text : text)
+    setInput(text)
   }, []))
 
   useEffect(() => {

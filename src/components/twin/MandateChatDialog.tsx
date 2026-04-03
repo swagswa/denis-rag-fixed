@@ -41,7 +41,7 @@ export function MandateChatDialog({ agentName, mandateKey, currentMandate, open,
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const voice = useVoiceInput(useCallback((text: string) => {
-    setInput(prev => prev ? prev + ' ' + text : text)
+    setInput(text)
   }, []))
 
   useEffect(() => {
