@@ -94,64 +94,8 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
         throw new Error(await extractErrorMessage(resp))
       }
 
-      if (!resp.body) {
-        throw new Error('Пустой ответ от сервера')
-      }
-
-      const reader = resp.body.getReader()
-      const decoder = new TextDecoder()
-      let textBuffer = ''
-      let result = ''
-      let streamDone = false
-
-      while (!streamDone) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        textBuffer += decoder.decode(value, { stream: true })
-        let idx: number
-        while ((idx = textBuffer.indexOf('\n')) !== -1) {
-          let line = textBuffer.slice(0, idx)
-          textBuffer = textBuffer.slice(idx + 1)
-
-          if (line.endsWith('\r')) line = line.slice(0, -1)
-          if (line.startsWith(':') || line.trim() === '' || !line.startsWith('data: ')) continue
-
-          const jsonStr = line.slice(6).trim()
-          if (jsonStr === '[DONE]') {
-            streamDone = true
-            break
-          }
-
-          try {
-            const parsed = JSON.parse(jsonStr)
-            const content = parsed.choices?.[0]?.delta?.content as string | undefined
-            if (content) result += content
-          } catch {
-            textBuffer = `${line}\n${textBuffer}`
-            break
-          }
-        }
-      }
-
-      if (textBuffer.trim()) {
-        for (let raw of textBuffer.split('\n')) {
-          if (!raw) continue
-          if (raw.endsWith('\r')) raw = raw.slice(0, -1)
-          if (raw.startsWith(':') || raw.trim() === '' || !raw.startsWith('data: ')) continue
-
-          const jsonStr = raw.slice(6).trim()
-          if (jsonStr === '[DONE]') continue
-
-          try {
-            const parsed = JSON.parse(jsonStr)
-            const content = parsed.choices?.[0]?.delta?.content as string | undefined
-            if (content) result += content
-          } catch {
-            // ignore tail garbage
-          }
-        }
-      }
+      const data = await resp.json()
+      const result = data.result || ''
 
       if (result.trim()) {
         let cleaned = result.trim()

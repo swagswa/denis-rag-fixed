@@ -52,7 +52,6 @@ serve(async (req) => {
             content: `ТЕКУЩИЙ ПРОМТ:\n---\n${currentPrompt}\n---\n\nИНСТРУКЦИЯ: ${instruction}`
           }
         ],
-        stream: true,
       }),
     });
 
@@ -63,22 +62,19 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Закончились кредиты AI" }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
       const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
+      console.error("OpenAI error:", response.status, t);
       return new Response(JSON.stringify({ error: "Ошибка AI" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    return new Response(response.body, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+    const data = await response.json();
+    const result = data.choices?.[0]?.message?.content || "";
+
+    return new Response(JSON.stringify({ result }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
     console.error("prompt-refine error:", e);
