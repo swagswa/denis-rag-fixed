@@ -72,6 +72,18 @@ serve(async (req) => {
 
     const customMandateText = customMandate?.[0]?.content || "";
 
+    // ═══ BLACKLIST: rejected companies ═══
+    const { data: rejectedLeads } = await supabase
+      .from("leads")
+      .select("company_name")
+      .eq("status", "rejected")
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    const blacklist = [...new Set(
+      (rejectedLeads || []).map((l: any) => l.company_name?.trim()).filter(Boolean)
+    )];
+
     // ═══ PHASE 0: Self-regulation — delete returned insights, reset their signals ═══
     const { data: returnedInsights } = await supabase
       .from("insights")
@@ -147,24 +159,11 @@ serve(async (req) => {
 
     // Fire all independent queries in parallel
     const [
-      { data: recentFeedback },
-      { data: kpiGoals },
       { data: pastInsights },
       { data: pastLeads },
       { data: signals, error: signalsError },
       { data: historicalSignals },
     ] = await Promise.all([
-      supabase
-        .from("agent_feedback")
-        .select("factory, feedback_type, content")
-        .eq("to_agent", "analyst")
-        .eq("resolved", false)
-        .order("created_at", { ascending: false })
-        .limit(10),
-      supabase
-        .from("agent_kpi")
-        .select("id, factory, metric, target, current")
-        .eq("active", true),
       supabase
         .from("insights")
         .select("title, company_name, problem, action_proposal, opportunity_type, status")
@@ -180,33 +179,6 @@ serve(async (req) => {
     ]);
 
     if (signalsError) throw signalsError;
-
-    const feedbackContext = (recentFeedback || [])
-      .map((f: any) => `[${f.factory}/${f.feedback_type}]: ${f.content}`)
-      .join("\n");
-
-    const kpiContext = (kpiGoals || [])
-      .map((k: any) => `[${k.factory}] ${k.metric}: ${k.current}/${k.target}`)
-      .join("\n");
-
-    // Self-optimization: check analyst KPI
-    const myKpi = (kpiGoals || []).find((k: any) => k.factory === factory && k.metric === "insights_per_week");
-    const kpiGap = myKpi ? Math.max(0, (myKpi.target || 0) - (myKpi.current || 0)) : 0;
-    const isUrgent = kpiGap > (myKpi?.target || 20) * 0.5;
-
-    let selfOptimizationPrompt = "";
-    if (kpiGap > 0) {
-      selfOptimizationPrompt = `
-═══ 🚨 САМООПТИМИЗАЦИЯ АНАЛИТИКА (${isUrgent ? "КРИТИЧНО" : "УМЕРЕННО"}) ═══
-Осталось создать ${kpiGap} инсайтов до выполнения KPI (${myKpi?.current || 0}/${myKpi?.target || "?"})
-АДАПТАЦИЯ:
-${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала, если он хоть немного релевантен" : "- Расширь критерии: бери сигналы из СМЕЖНЫХ отраслей"}
-- Используй ИСТОРИЧЕСКИЕ сигналы (см. ниже) — они могут стать актуальными при новых триггерах
-- Не будь слишком строгим — Маркетолог/Билдер сами отфильтруют нерелевантное
-- РЕКОМЕНДАЦИИ СКАУТУ: "Нужно больше сигналов из отраслей: ${factory === "consulting" ? "логистика, медицина, образование, ритейл" : "AgriTech, EdTech, FinTech, HealthTech"}. Текущие сигналы слишком общие."
-- РЕКОМЕНДАЦИИ ${factory === "consulting" ? "МАРКЕТОЛОГУ" : "БИЛДЕРУ"}: "Даю больше инсайтов. Возвращай с КОНКРЕТНЫМИ причинами — я адаптируюсь."
-`;
-    }
 
     const knowledgeInsights = (pastInsights || []).length > 0
       ? (pastInsights || [])
@@ -264,10 +236,12 @@ ${isUrgent ? "- Создавай инсайт из КАЖДОГО сигнала
 ${mandateIndustry ? `- Целевые отрасли: ${mandateIndustry}` : ""}
 ${mandateNotes ? `- Доп. указания: ${mandateNotes}` : ""}
 ${customMandateText ? `\n═══ ПОЛЬЗОВАТЕЛЬСКИЙ МАНДАТ ═══\n${customMandateText}\n═══ КОНЕЦ МАНДАТА ═══\n` : ""}
-ВАЖНО — КОНВЕРСИЯ:
-- Создавай инсайт из КАЖДОГО сигнала, если он хоть МИНИМАЛЬНО релевантен нашему мандату.
-- МИНИМУМ 60% сигналов должны стать инсайтами. Если сомневаешься — СОЗДАЙ инсайт. Маркетолог отфильтрует слабые.
-- Не будь перфекционистом. Лучше 10 средних инсайтов, чем 2 идеальных.
+${blacklist.length > 0 ? `\n═══ ЧЁРНЫЙ СПИСОК (эти компании ОТКЛОНЕНЫ — НЕ создавай инсайты по ним!) ═══\n${blacklist.join(", ")}\n═══ КОНЕЦ ЧЁРНОГО СПИСКА ═══\n` : ""}
+КАЧЕСТВО:
+- Один сигнал = максимум один инсайт. Не множь инсайты из одного сигнала.
+- Каждый инсайт ОБЯЗАН содержать: конкретную компанию ИЛИ конкретную отрасль + боль + почему сейчас.
+- Абстрактные инсайты ("тренд на автоматизацию") — НЕ создавай.
+- Лучше 0 инсайтов чем 5 мусорных.
 
 ТВОЯ РОЛЬ — АНАЛИТИК, НЕ МАРКЕТОЛОГ:
 Ты создаёшь ИНСАЙТЫ и ТЕМЫ — ценные наблюдения о рыночных трендах, болях и возможностях.
@@ -407,9 +381,6 @@ ${knowledgeLeads ? `\nЛИДЫ:\n${knowledgeLeads}` : ""}
 - source_index = номер сигнала из входных данных (начиная с 1)
 - Если сигнал нерелевантен — просто НЕ включай его в ответ
 
-${feedbackContext ? `\n═══ ОБРАТНАЯ СВЯЗЬ ОТ МАРКЕТОЛОГА/БИЛДЕРА (учти при анализе!):\n${feedbackContext}\nАдаптируй свои инсайты с учётом этой обратной связи!\n` : ""}
-${kpiContext ? `\n═══ ТЕКУЩИЕ KPI (если отстаём — будь менее строгим фильтром):\n${kpiContext}\n` : ""}
-${selfOptimizationPrompt}
 ${historicalContext ? `\n═══ ИСТОРИЧЕСКИЕ СИГНАЛЫ (за последние 7 дней) ═══
 Эти сигналы УЖЕ были обработаны ранее, НО могут снова стать актуальными!
 Если новый сигнал создаёт ТРИГГЕР, который делает старый сигнал релевантным — используй их ВМЕСТЕ для создания более сильного инсайта.
@@ -526,47 +497,6 @@ ${brief}`;
         .in("id", skippedSignals.map((signal) => signal.id));
     }
 
-    // ═══ SELF-OPTIMIZATION: Update KPI + peer feedback ═══
-    if (myKpi && toInsert.length > 0) {
-      await supabase.from("agent_kpi").update({ current: (myKpi.current || 0) + toInsert.length, updated_at: new Date().toISOString() }).eq("id", myKpi.id);
-    }
-
-    // Feedback to scout if few signals are usable
-    if (queue.length > 3 && toInsert.length < queue.length * 0.3) {
-      try {
-        await supabase.from("agent_feedback").insert({
-          factory,
-          from_agent: "analyst",
-          to_agent: "scout",
-          feedback_type: "optimization",
-          content: `Конверсия сигналов в инсайты: ${toInsert.length}/${queue.length} (${Math.round(toInsert.length / queue.length * 100)}%). Нужны более КОНКРЕТНЫЕ сигналы: с названиями компаний, ссылками на вакансии/тендеры, конкретными событиями. Абстрактные "тренды" не конвертируются.`,
-        } as any);
-      } catch {}
-    }
-
-    // Feedback to marketer/builder if conversion from their side is low
-    if (toInsert.length > 3) {
-      try {
-        const downstreamAgent = factory === "consulting" ? "marketer" : "builder";
-        const { data: returnedCount } = await supabase
-          .from("insights")
-          .select("id")
-          .eq("status", "returned")
-          .eq("opportunity_type", factory === "consulting" ? "consulting" : "foundry")
-          .gte("created_at", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString());
-
-        if ((returnedCount || []).length > 5) {
-          await supabase.from("agent_feedback").insert({
-            factory,
-            from_agent: "analyst",
-            to_agent: downstreamAgent,
-            feedback_type: "optimization",
-            content: `${(returnedCount || []).length} инсайтов вернулись за 3 дня. Я адаптирую: делаю инсайты конкретнее, добавляю поисковые запросы для нахождения ЛПР. ${downstreamAgent === "marketer" ? "Возвращай с конкретной причиной — какой информации не хватает?" : "Какие типы идей тебе проще строить? Я подстроюсь."}`,
-          } as any);
-        }
-      } catch {}
-    }
-
     return new Response(JSON.stringify({
       success: true,
       recycled,
@@ -574,7 +504,6 @@ ${brief}`;
       signals_analyzed: analyzedIds.size,
       signals_skipped: skippedSignals.length,
       insights_created: toInsert.length,
-      kpi_updated: true,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
