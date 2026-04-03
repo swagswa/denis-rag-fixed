@@ -86,6 +86,14 @@ serve(async (req) => {
       (rejectedLeads || []).map((l: any) => l.company_name?.trim()).filter(Boolean)
     )];
 
+    // ═══ Load custom mandate from agent_mandates ═══
+    const { data: mandateRow } = await supabase
+      .from("agent_mandates")
+      .select("full_mandate")
+      .eq("agent_key", `scout-${factory}`)
+      .limit(1);
+    const customMandateText = mandateRow?.[0]?.full_mandate || "";
+
     // ═══ Load sources from DB ═══
     const { data: sources } = await supabase
       .from("scout_sources")
@@ -148,6 +156,7 @@ serve(async (req) => {
 
 МАНДАТ: компании ${mandateRegion}, ${mandateSize} сотрудников. Корпорации (1С, Яндекс, Сбер, МТС) — ПРОПУСКАЙ.
 ${mandateIndustry ? `Целевые отрасли: ${mandateIndustry}` : ""}
+${customMandateText ? `\n═══ МАНДАТ АГЕНТА ═══\n${customMandateText}\n═══ КОНЕЦ МАНДАТА ═══\n` : ""}
 ${blacklist.length > 0 ? `\nЧЁРНЫЙ СПИСОК (НЕ включай эти компании):\n${blacklist.join(", ")}\n` : ""}
 
 РЕАЛЬНЫЕ ДАННЫЕ:

@@ -54,13 +54,18 @@ export function MandateChatDialog({ agentName, mandateKey, currentMandate, open,
   }, [messages])
 
   const saveMandate = async (newText: string) => {
-    const dk = `mandate:${mandateKey}`
-    const { data: ex } = await supabase.from('documents' as any).select('id').eq('source_ref', dk).limit(1)
-    if ((ex as any)?.length) {
-      await supabase.from('documents' as any).update({ content: newText, updated_at: new Date().toISOString() } as any).eq('id', (ex as any)[0].id)
-    } else {
-      await supabase.from('documents' as any).insert({ title: `Мандат: ${agentName}`, content: newText, source_type: 'agent_mandate', source_ref: dk, source_name: mandateKey } as any)
-    }
+    const factory = mandateKey.includes('foundry') ? 'foundry' : 'consulting'
+    // Extract summary: first 3 non-empty lines, max 200 chars
+    const lines = newText.split('\n').filter((l: string) => l.trim())
+    const summary = lines.slice(0, 3).join('\n').slice(0, 200)
+
+    await supabase
+      .from('agent_mandates')
+      .upsert(
+        { agent_key: mandateKey, summary, full_mandate: newText, factory, updated_at: new Date().toISOString() },
+        { onConflict: 'agent_key' }
+      )
+
     setMandate(newText)
     onMandateUpdated()
   }

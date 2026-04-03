@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { ChevronDown, ChevronUp, Pencil, Plus, Pause, Play, Trash2, Loader2, Settings2, MessageSquare } from 'lucide-react'
-import { DEFAULT_MANDATES } from '@/lib/agent-mandates'
+import { DEFAULT_MANDATES, loadAllMandates } from '@/lib/agent-mandates'
 import { MandateChatDialog } from './MandateChatDialog'
 
 type Mood = 'great' | 'good' | 'neutral' | 'struggling'
@@ -54,12 +54,8 @@ export function TwinTeams() {
 
   const loadData = async () => {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-    const { data: mandateDocs } = await supabase.from('documents' as any).select('source_name, content').eq('source_type', 'agent_mandate')
-    const customMandates: MandateMap = {}
-    for (const doc of (mandateDocs || []) as any[]) {
-      if (doc.source_name) { const c = doc.content || ''; const lines = c.split('\n').filter((l: string) => l.trim()); customMandates[doc.source_name] = { summary: lines.slice(0, 3).join('\n').slice(0, 200), full: c } }
-    }
-    const gm = (key: string) => customMandates[key] || DEFAULT_MANDATES[key] || { summary: '', full: '' }
+    const dbMandates = await loadAllMandates()
+    const gm = (key: string) => dbMandates[key] || DEFAULT_MANDATES[key] || { summary: '', full: '' }
 
     const [sR, iR, lR, oR, fR, fbR] = await Promise.all([
       supabase.from('signals').select('id, company_name, description, created_at, status, potential').order('created_at', { ascending: false }).limit(50),

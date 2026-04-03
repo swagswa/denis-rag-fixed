@@ -1,8 +1,10 @@
+import { supabase } from './supabase'
+
 /**
  * Default mandates — extracted from ACTUAL edge function system prompts.
  * These are the real instructions each agent follows.
+ * Used as fallback when DB is unavailable.
  */
-
 export const DEFAULT_MANDATES: Record<string, { summary: string; full: string }> = {
   "scout-consulting": {
     summary: `Скаут сканирует РЕАЛЬНЫЕ источники (hh.ru, vc.ru, habr, zakupki.gov.ru) через Firecrawl и извлекает конкретные сигналы для consulting-направления. Целевые компании: 5-500 человек. Корпорации (1С, Яндекс, Сбер) — пропускает.`,
@@ -301,3 +303,43 @@ export const DEFAULT_MANDATES: Record<string, { summary: string; full: string }>
 ПРИНЦИП: Воронка должна работать. Лучше 10 средних идей, чем 0 идеальных.`,
   },
 };
+
+export async function loadMandate(agentKey: string): Promise<{ summary: string; full: string }> {
+  const { data } = await supabase
+    .from('agent_mandates')
+    .select('summary, full_mandate')
+    .eq('agent_key', agentKey)
+    .limit(1)
+
+  if (data?.[0]) {
+    return { summary: data[0].summary, full: data[0].full_mandate }
+  }
+  return DEFAULT_MANDATES[agentKey] || { summary: '', full: '' }
+}
+
+export async function loadAllMandates(): Promise<Record<string, { summary: string; full: string }>> {
+  const { data } = await supabase
+    .from('agent_mandates')
+    .select('agent_key, summary, full_mandate')
+
+  if (data && data.length > 0) {
+    const result: Record<string, { summary: string; full: string }> = {}
+    for (const row of data) {
+      result[row.agent_key] = { summary: row.summary, full: row.full_mandate }
+    }
+    return result
+  }
+  return { ...DEFAULT_MANDATES }
+}
+
+export async function saveMandate(agentKey: string, summary: string, full: string): Promise<void> {
+  const factory = agentKey.includes('foundry') ? 'foundry' : 'consulting'
+  const { error } = await supabase
+    .from('agent_mandates')
+    .upsert(
+      { agent_key: agentKey, summary, full_mandate: full, factory, updated_at: new Date().toISOString() },
+      { onConflict: 'agent_key' }
+    )
+
+  if (error) throw error
+}

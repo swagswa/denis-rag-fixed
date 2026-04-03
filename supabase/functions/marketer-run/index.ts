@@ -96,15 +96,13 @@ serve(async (req) => {
     const mandateSize = flows?.[0]?.target_company_size || "5-500";
     const mandateRegion = flows?.[0]?.target_region || "РФ/СНГ";
 
-    // Load custom mandate from documents table (if user edited it via UI)
-    const { data: customMandate } = await supabase
-      .from("documents")
-      .select("content")
-      .eq("source_type", "agent_mandate")
-      .eq("source_name", "marketer-consulting")
+    // Load custom mandate from agent_mandates table
+    const { data: mandateRow } = await supabase
+      .from("agent_mandates")
+      .select("full_mandate")
+      .eq("agent_key", "marketer-consulting")
       .limit(1);
-
-    const customMandateText = customMandate?.[0]?.content || "";
+    const customMandateText = mandateRow?.[0]?.full_mandate || "";
 
     const selfOptimizationPrompt = ""; // Removed — quality over quantity
 

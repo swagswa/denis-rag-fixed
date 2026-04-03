@@ -61,16 +61,13 @@ serve(async (req) => {
     const mandateIndustry = flows?.[0]?.target_industry || "";
     const mandateNotes = flows?.[0]?.target_notes || "";
 
-    // Load custom mandate from documents table (if user edited it via UI)
-    const mandateKey = `analyst-${factory}`;
-    const { data: customMandate } = await supabase
-      .from("documents")
-      .select("content")
-      .eq("source_type", "agent_mandate")
-      .eq("source_name", mandateKey)
+    // Load custom mandate from agent_mandates table
+    const { data: mandateRow } = await supabase
+      .from("agent_mandates")
+      .select("full_mandate")
+      .eq("agent_key", `analyst-${factory}`)
       .limit(1);
-
-    const customMandateText = customMandate?.[0]?.content || "";
+    const customMandateText = mandateRow?.[0]?.full_mandate || "";
 
     // ═══ BLACKLIST: rejected companies ═══
     const { data: rejectedLeads } = await supabase
