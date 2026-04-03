@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AlertCircle, Check, X as XIcon, Eye, Search, Lightbulb, MessageSquare, ShoppingCart, Wrench, ArrowDown, TrendingUp, TrendingDown, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { ScoutSourcesManager } from './ScoutSourcesManager'
 
 interface Flow {
   id: string
@@ -57,6 +58,7 @@ export function TwinDashboard() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [bottlenecks, setBottlenecks] = useState<{ factory: string; message: string }[]>([])
   const [recentRuns, setRecentRuns] = useState<RecentRun[]>([])
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'sources'>('dashboard')
 
   const loadData = async () => {
     const monthStart = new Date()
@@ -248,10 +250,32 @@ export function TwinDashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-slate-100">Дашборд</h2>
-        <p className="mt-1 text-sm text-slate-500">Воронки обновляются автоматически. Зелёным — новое за 12 часов.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-100">Дашборд</h2>
+          <p className="mt-1 text-sm text-slate-500">Воронки обновляются автоматически. Зелёным — новое за 12 часов.</p>
+        </div>
+        <div className="flex gap-1 rounded-lg border border-slate-700 bg-slate-800 p-1">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-slate-600 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            Дашборд
+          </button>
+          <button
+            onClick={() => setActiveTab('sources')}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${activeTab === 'sources' ? 'bg-slate-600 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+          >
+            <Settings2 className="h-3.5 w-3.5" /> Источники
+          </button>
+        </div>
       </div>
+
+      {activeTab === 'sources' ? (
+        <div className="space-y-6">
+          <ScoutSourcesManager factory="consulting" />
+        </div>
+      ) : (<>
 
       {/* Bottlenecks / Auto-optimization alerts */}
       {bottlenecks.length > 0 && (
@@ -360,6 +384,7 @@ export function TwinDashboard() {
           <StatBox label="Конверсия" value={`${chatStats.conversionRate}%`} highlight />
         </div>
       </div>
+      </>)}
     </div>
   )
 }
