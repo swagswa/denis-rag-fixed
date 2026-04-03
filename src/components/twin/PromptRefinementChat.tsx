@@ -1,16 +1,59 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Wand2, Mic, MicOff, Send, Loader2, Check, X } from 'lucide-react'
+import { Wand2, Mic, MicOff, Send, Loader2, Check, X, Minus, Plus } from 'lucide-react'
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from '@/lib/supabase'
 import { useVoiceInput } from '@/hooks/useVoiceInput'
-import ReactMarkdown from 'react-markdown'
 
 const REFINE_URL = `${SUPABASE_URL}/functions/v1/prompt-refine`
 
-type Msg = { role: 'user' | 'assistant'; content: string; prompt?: string | null }
+type Diff = { old: string; new: string }
+type Msg = {
+  role: 'user' | 'assistant'
+  content: string
+  prompt?: string | null
+  diffs?: Diff[]
+}
 
 interface Props {
   currentPrompt: string
   onApplyPrompt: (newPrompt: string) => void | Promise<void>
+}
+
+// Strip all custom tags from display text
+function cleanDisplay(content: string): string {
+  return content
+    .replace(/<PROMPT_RESULT>[\s\S]*?<\/PROMPT_RESULT>/g, '')
+    .replace(/<DIFF_OLD>[\s\S]*?<\/DIFF_OLD>/g, '')
+    .replace(/<DIFF_NEW>[\s\S]*?<\/DIFF_NEW>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function DiffBlock({ diff }: { diff: Diff }) {
+  return (
+    <div className="rounded-lg overflow-hidden border border-slate-700 my-2 text-xs font-mono">
+      <div className="flex items-start gap-2 bg-red-950/40 px-3 py-2 border-b border-slate-700/50">
+        <Minus className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" />
+        <span className="text-red-300 whitespace-pre-wrap break-words">{diff.old}</span>
+      </div>
+      <div className="flex items-start gap-2 bg-green-950/40 px-3 py-2">
+        <Plus className="h-3.5 w-3.5 text-green-400 shrink-0 mt-0.5" />
+        <span className="text-green-300 whitespace-pre-wrap break-words">{diff.new}</span>
+      </div>
+    </div>
+  )
+}
+
+async function fetchWithRetry(url: string, options: RequestInit, retries = 2): Promise<Response> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const resp = await fetch(url, options)
+      return resp
+    } catch (e) {
+      if (i === retries) throw e
+      await new Promise(r => setTimeout(r, 1000))
+    }
+  }
+  throw new Error('Ошибка сети')
 }
 
 export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
@@ -46,7 +89,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
 
       const apiMessages = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
 
-      const resp = await fetch(REFINE_URL, {
+      const resp = await fetchWithRetry(REFINE_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,6 +110,7 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
         role: 'assistant',
         content: data.reply || 'Пустой ответ',
         prompt: data.prompt || null,
+        diffs: data.diffs?.length ? data.diffs : undefined,
       }])
     } catch (e: any) {
       setMessages(prev => [...prev, {
@@ -96,14 +140,9 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
     }
   }, [onApplyPrompt])
 
-  const handleReject = useCallback((idx: number) => {
-    setMessages(prev => [...prev, { role: 'user', content: 'Нет, давай по-другому' }])
+  const handleReject = useCallback(() => {
+    setInput('Нет, давай по-другому')
   }, [])
-
-  // Strip <PROMPT_RESULT> tags from displayed text
-  const displayContent = (content: string) => {
-    return content.replace(/<PROMPT_RESULT>[\s\S]*?<\/PROMPT_RESULT>/g, '').trim()
-  }
 
   return (
     <div className="flex flex-col min-h-0 h-full">
@@ -129,39 +168,52 @@ export function PromptRefinementChat({ currentPrompt, onApplyPrompt }: Props) {
 
         {messages.map((m, i) => (
           <div key={i}>
-            <div className={`rounded-lg px-3 py-2 text-xs ${
-              m.role === 'user'
-                ? 'bg-purple-900/30 text-purple-200 ml-8'
-                : 'bg-slate-800/60 text-slate-300 mr-4'
-            }`}>
-              {m.role === 'assistant' ? (
-                <div className="prose prose-sm prose-invert max-w-none [&>p]:m-0 [&>ul]:m-0 [&>ol]:m-0 text-xs">
-                  <ReactMarkdown>{displayContent(m.content)}</ReactMarkdown>
-                </div>
-              ) : (
-                m.content
-              )}
-            </div>
+            {/* User message */}
+            {m.role === 'user' && (
+              <div className="rounded-lg px-3 py-2 text-xs bg-purple-900/30 text-purple-200 ml-8">
+                {m.content}
+              </div>
+            )}
 
-            {/* Apply/Reject buttons when AI proposes a prompt */}
-            {m.role === 'assistant' && m.prompt && (
-              <div className="flex items-center gap-2 mt-1.5 ml-1">
-                <button
-                  onClick={() => handleApply(m.prompt!)}
-                  disabled={applying}
-                  className="flex items-center gap-1 rounded-lg bg-green-700/80 px-3 py-1 text-[11px] font-medium text-white hover:bg-green-600 disabled:opacity-50"
-                >
-                  {applying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                  Применить
-                </button>
-                <button
-                  onClick={() => handleReject(i)}
-                  disabled={applying || loading}
-                  className="flex items-center gap-1 rounded-lg bg-slate-700/80 px-3 py-1 text-[11px] text-slate-300 hover:bg-slate-600 disabled:opacity-50"
-                >
-                  <X className="h-3 w-3" />
-                  Иначе
-                </button>
+            {/* Assistant message */}
+            {m.role === 'assistant' && (
+              <div className="mr-4 space-y-1">
+                {/* Text explanation */}
+                {cleanDisplay(m.content) && (
+                  <div className="rounded-lg px-3 py-2 text-xs bg-slate-800/60 text-slate-300">
+                    {cleanDisplay(m.content)}
+                  </div>
+                )}
+
+                {/* Visual diffs */}
+                {m.diffs && m.diffs.length > 0 && (
+                  <div>
+                    <div className="text-[10px] text-slate-500 px-1 mt-1 mb-0.5">Изменения:</div>
+                    {m.diffs.map((d, j) => <DiffBlock key={j} diff={d} />)}
+                  </div>
+                )}
+
+                {/* Apply / Reject buttons */}
+                {m.prompt && (
+                  <div className="flex items-center gap-2 mt-2 ml-1">
+                    <button
+                      onClick={() => handleApply(m.prompt!)}
+                      disabled={applying}
+                      className="flex items-center gap-1.5 rounded-lg bg-green-700/80 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
+                    >
+                      {applying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                      Применить
+                    </button>
+                    <button
+                      onClick={handleReject}
+                      disabled={applying || loading}
+                      className="flex items-center gap-1.5 rounded-lg bg-slate-700/80 px-3 py-1.5 text-[11px] text-slate-300 hover:bg-slate-600 disabled:opacity-50 transition-colors"
+                    >
+                      <X className="h-3 w-3" />
+                      Иначе
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
